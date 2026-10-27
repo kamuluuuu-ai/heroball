@@ -16,6 +16,11 @@ export interface RoomSettings {
   teamSize: 1 | 2 | 3;
   /** Capacidad total incluyendo espectadores. */
   maxPlayers: number;
+  /**
+   * Partida oficial: sólo en el servidor con base de datos. Jugadores con
+   * cuenta, héroes de su colección, sin bots; el servidor resuelve recompensas.
+   */
+  official: boolean;
 }
 
 export const DEFAULT_SETTINGS: RoomSettings = {
@@ -24,6 +29,7 @@ export const DEFAULT_SETTINGS: RoomSettings = {
   scoreLimit: 3,
   teamSize: 3,
   maxPlayers: 10,
+  official: false,
 };
 
 export interface RoomSummary {
@@ -34,6 +40,7 @@ export interface RoomSummary {
   mode: GameMode;
   teamSize: number;
   playing: boolean;
+  official: boolean;
 }
 
 export interface RoomMember {
@@ -43,9 +50,27 @@ export interface RoomMember {
   hero: HeroId;
   bot: boolean;
   host: boolean;
-  /** Administrador verificado con clave firmada. */
+  /** Moderador verificado (rol de cuenta o firma emitida por el servidor). */
   admin: boolean;
+  /** Jugador con cuenta verificada por el servidor (el apodo es el de la cuenta). */
+  verified: boolean;
   ping: number;
+}
+
+/** Cuenta asociada a la conexión, verificada por el servidor con la sesión. */
+export interface AccountInfo {
+  userId: string;
+  name: string;
+  roles: string[];
+}
+
+/** Resultado de una partida oficial para un jugador. */
+export interface RewardInfo {
+  eligible: boolean;
+  reason: string | null;
+  coins: number;
+  dailyBonus: number;
+  weeklyElite: number;
 }
 
 export interface RoomInfo {
@@ -88,7 +113,7 @@ export interface AdminState {
 }
 
 export type ClientMsg =
-  | { t: 'hello'; nick: string; v: number }
+  | { t: 'hello'; nick: string; v: number; token?: string }
   | { t: 'list' }
   | { t: 'create'; name: string; settings: Partial<RoomSettings> }
   | { t: 'join'; room: string }
@@ -109,7 +134,8 @@ export type ClientMsg =
   | { t: 'ping'; c: number; r?: number };
 
 export type ServerMsg =
-  | { t: 'welcome'; id: string; v: number; nonce: string }
+  | { t: 'welcome'; id: string; v: number; nonce: string; account: AccountInfo | null; official: boolean }
+  | { t: 'reward'; r: RewardInfo }
   | { t: 'admin'; ok: boolean }
   | { t: 'adminstate'; s: AdminState }
   | { t: 'rooms'; rooms: RoomSummary[] }
@@ -155,6 +181,10 @@ export function sanitizeSettings(raw: unknown): Partial<RoomSettings> | null {
     if (!isInt(r.maxPlayers, 2, 16)) return null;
     out.maxPlayers = r.maxPlayers;
   }
+  if ('official' in r) {
+    if (typeof r.official !== 'boolean') return null;
+    out.official = r.official;
+  }
   return out;
 }
 
@@ -172,7 +202,8 @@ export function parseClientMessage(raw: string): ClientMsg | null {
   switch (o.t) {
     case 'hello':
       if (!isStr(o.nick, 64) || typeof o.v !== 'number') return null;
-      return { t: 'hello', nick: o.nick, v: o.v };
+      if (o.token !== undefined && !isStr(o.token, 512)) return null;
+      return { t: 'hello', nick: o.nick, v: o.v, token: o.token as string | undefined };
     case 'list':
     case 'leave':
     case 'start':

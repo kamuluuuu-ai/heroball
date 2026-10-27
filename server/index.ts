@@ -1,17 +1,27 @@
-// Servidor de HeroBall: sirve la app compilada (dist/) y las conexiones WebSocket.
+// Servidor de HeroBall: sirve la app compilada (dist/), las conexiones
+// WebSocket y, si hay DATABASE_URL, las cuentas, la economía y las partidas
+// oficiales. Sin base de datos funciona igual que antes (sólo casual).
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { TICK_MS } from '../shared/config';
-import { MAX_MESSAGE_BYTES, ServerMsg } from '../shared/protocol';
-import { Client, Lobby } from './room';
+import { MAX_MESSAGE_BYTES, ServerMsg, type AccountInfo } from '../shared/protocol';
+import { applyCors, createApi } from './api';
+import { bearerHeaders, createAuth, sessionUser } from './auth';
+import { createPool, migrate } from './db';
+import { Economy } from './economy';
 import { createHandler } from './handler';
+import { createMailer } from './mail';
+import { Client, Lobby } from './room';
 
-const PORT = Number(process.env.PORT ?? 3001);
-const HOST = process.env.HOST ?? '0.0.0.0';
+const env = process.env;
+const PORT = Number(env.PORT ?? 3001);
+const HOST = env.HOST ?? '0.0.0.0';
 const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '..', 'dist');
+/** Orígenes del frontend (GitHub Pages, Vite en local). */
+const ORIGINS = (env.CORS_ORIGINS ?? 'http://localhost:5173,http://localhost:3001').split(',').map((s) => s.trim()).filter(Boolean);
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -24,18 +34,57 @@ const MIME: Record<string, string> = {
   '.webmanifest': 'application/manifest+json',
 };
 
-const lobby = new Lobby();
+function fail(msg: string): never {
+  console.error(`Configuración inválida: ${msg}`);
+  process.exit(1);
+}
 
-const http = createServer((req, res) => {
+// ---------------------------------------------------------------- economía (opcional)
+let economy: Economy | null = null;
+let api: ReturnType<typeof createApi> | null = null;
+let identify: ((token: string) => Promise<AccountInfo | null>) | undefined;
+
+if (env.DATABASE_URL) {
+  const secret = env.BETTER_AUTH_SECRET ?? '';
+  if (secret.length < 32) fail('BETTER_AUTH_SECRET debe tener al menos 32 caracteres aleatorios.');
+  const baseURL = env.PUBLIC_API_URL ?? `http://localhost:${PORT}`;
+  const db = createPool(env.DATABASE_URL);
+  if (env.MIGRATE_ON_START !== '0') await migrate(db, undefined, console.log);
+  const mailer = createMailer(env.SMTP_URL, env.MAIL_FROM ?? 'HeroBall <no-reply@localhost>');
+  const auth = createAuth({ db, baseURL, secret, trustedOrigins: ORIGINS, sendResetLink: mailer });
+  economy = new Economy(db, {
+    adminCoins: Number(env.ADMIN_MAX_COINS ?? 100_000),
+    adminChests: Number(env.ADMIN_MAX_CHESTS ?? 100),
+  });
+  api = createApi({ auth, economy, origins: ORIGINS, moderatorSigningKey: env.MODERATOR_SIGNING_KEY || undefined });
+  const eco = economy;
+  identify = async (token) => {
+    const u = await sessionUser(auth, bearerHeaders(token));
+    if (!u) return null;
+    await eco.ensureAccount(u.id);
+    return { userId: u.id, name: u.name, roles: await eco.roles(u.id) };
+  };
+  console.log(`Cuentas y economía activas (API pública: ${baseURL}; orígenes: ${ORIGINS.join(', ')}).`);
+  if (!env.SMTP_URL) console.log('Aviso: sin SMTP_URL los enlaces de recuperación de contraseña se escriben en esta consola.');
+} else {
+  console.log('Sin DATABASE_URL: sólo partidas casuales (sin cuentas, economía ni partidas oficiales).');
+}
+
+const lobby = new Lobby(economy?.adapter() ?? null);
+
+const http = createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://x');
-  if (url.pathname === '/api/health') {
-    res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ ok: true, rooms: lobby.rooms.size }));
+  if (url.pathname === '/api/health' || url.pathname === '/api/rooms') {
+    if (applyCors(req, res, ORIGINS)) return;
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(JSON.stringify(url.pathname === '/api/health' ? { ok: true, rooms: lobby.rooms.size, economy: !!economy } : lobby.list()));
     return;
   }
-  if (url.pathname === '/api/rooms') {
-    res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify(lobby.list()));
+  if (api && (await api(req, res))) return;
+  if (url.pathname.startsWith('/api/')) {
+    if (applyCors(req, res, ORIGINS)) return;
+    res.writeHead(economy ? 404 : 503, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: economy ? 'not_found' : 'no_economy', message: economy ? 'Ruta inexistente.' : 'Este servidor no tiene cuentas ni economía activas.' }));
     return;
   }
   if (!existsSync(ROOT)) {
@@ -70,7 +119,7 @@ wss.on('connection', (ws: WebSocket) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(typeof msg === 'string' ? msg : JSON.stringify(msg));
     },
   };
-  const h = createHandler(lobby, client, { onAbuse: () => ws.close(1008, 'demasiados mensajes inválidos') });
+  const h = createHandler(lobby, client, { onAbuse: () => ws.close(1008, 'demasiados mensajes inválidos'), identify });
   ws.on('message', (data, isBinary) => {
     if (isBinary) return;
     h.onMessage(data.toString());

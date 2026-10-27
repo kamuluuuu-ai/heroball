@@ -1,0 +1,23 @@
+# PostgreSQL local para HeroBall (cuentas, economía y auditoría).
+#   docker compose up -d
+#   DATABASE_URL=postgres://heroball:heroball-local@localhost:54329/heroball
+# Sólo para desarrollo: la contraseña es pública y el puerto escucha en localhost.
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: heroball
+      POSTGRES_PASSWORD: heroball-local
+      POSTGRES_DB: heroball
+    ports:
+      - "127.0.0.1:54329:5432"
+    volumes:
+      - heroball-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U heroball -d heroball"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  heroball-db:

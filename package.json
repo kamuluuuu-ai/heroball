@@ -6,12 +6,17 @@
   "type": "module",
   "description": "HeroBall: fútbol 2D multijugador con superpoderes (proyecto independiente, inspirado en HaxBall)",
   "scripts": {
-    "dev": "concurrently -k -n server,client -c red,blue \"tsx watch server/index.ts\" \"vite\"",
+    "dev": "concurrently -k -n server,client -c red,blue \"node --env-file-if-exists=.env --import tsx --watch server/index.ts\" \"vite\"",
     "build": "tsc -p tsconfig.json --noEmit && vite build",
-    "start": "tsx server/index.ts",
+    "start": "node --env-file-if-exists=.env --import tsx server/index.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "build:pages": "vite build --mode pages --outDir ../dist-pages"
+    "build:pages": "vite build --mode pages --outDir ../dist-pages",
+    "dev:db": "tsx scripts/dev-db.ts",
+    "db:migrate": "node --env-file-if-exists=.env --import tsx scripts/migrate.ts",
+    "admin:role": "node --env-file-if-exists=.env --import tsx scripts/role.ts",
+    "admin:keygen": "node scripts/admin-keygen.mjs",
+    "economy:simulate": "tsx scripts/simulate-economy.ts"
   },
   "dependencies": {
     "better-auth": "1.7.7",

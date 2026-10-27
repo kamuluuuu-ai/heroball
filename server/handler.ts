@@ -1,7 +1,7 @@
 // Manejo de mensajes de un cliente conectado. Sin dependencias de Node: lo usa
 // el servidor WebSocket y también el navegador anfitrión en modo WebRTC.
 import { makeNonce, verifyAdmin } from '../shared/admin';
-import { MAX_NICK, PROTOCOL_VERSION, cleanText, parseClientMessage } from '../shared/protocol';
+import { MAX_NICK, PROTOCOL_VERSION, cleanText, parseClientMessage, type AccountInfo } from '../shared/protocol';
 import { RateLimiter } from './rate';
 import type { Client, Lobby } from './room';
 
@@ -11,6 +11,11 @@ export interface HandlerOptions {
   onAbuse?: () => void;
   /** Sólo para pruebas: otra clave pública de administrador. */
   adminPublicKey?: JsonWebKey;
+  /**
+   * Sólo el servidor con cuentas: valida el token de sesión y devuelve la
+   * cuenta. El anfitrión P2P no lo tiene, así que nunca identifica cuentas.
+   */
+  identify?: (token: string) => Promise<AccountInfo | null>;
 }
 
 export function createHandler(lobby: Lobby, client: Client, opts: HandlerOptions = {}) {
@@ -22,6 +27,7 @@ export function createHandler(lobby: Lobby, client: Client, opts: HandlerOptions
   // desafío de administrador, distinto en cada conexión
   const nonce = makeNonce();
   let adminTries = 0;
+  let hello: Promise<void> | null = null;
   const reject = (msg?: string) => {
     if (msg) client.send({ t: 'error', msg });
     if (++strikes > 200) opts.onAbuse?.();
@@ -47,10 +53,25 @@ export function createHandler(lobby: Lobby, client: Client, opts: HandlerOptions
     }
     if (!ctrlRate.take()) return reject('Demasiadas acciones seguidas.');
     if (m.t === 'hello') {
+      if (client.nick || hello) return;
       const nick = cleanText(m.nick, MAX_NICK);
       if (!nick) return reject('Apodo inválido.');
-      client.nick = nick;
-      client.send({ t: 'welcome', id: client.id, v: PROTOCOL_VERSION, nonce });
+      hello = (async () => {
+        let account: AccountInfo | null = null;
+        if (m.token && opts.identify) {
+          account = await opts.identify(m.token).catch(() => null);
+        }
+        if (account) {
+          // el apodo visible es el de la cuenta: nadie se apropia de otra por usar su nombre
+          client.userId = account.userId;
+          client.nick = cleanText(account.name, MAX_NICK) || nick;
+          if (account.roles.includes('moderator')) client.admin = true;
+          if (lobby.official) client.owned = await lobby.official.ownedHeroes(account.userId).catch(() => undefined);
+        } else {
+          client.nick = nick;
+        }
+        client.send({ t: 'welcome', id: client.id, v: PROTOCOL_VERSION, nonce, account, official: !!lobby.official });
+      })();
       return;
     }
     if (m.t === 'admin') {
@@ -98,7 +119,19 @@ export function createHandler(lobby: Lobby, client: Client, opts: HandlerOptions
     }
     switch (m.t) {
       case 'side': err = room.setSide(client.id, m.side, m.target); break;
-      case 'hero': room.setHero(client.id, m.hero); break;
+      case 'hero':
+        if (room.official && client.userId && lobby.official) {
+          // colección leída en el servidor en cada cambio (no se confía en el cliente)
+          const uid = client.userId;
+          void lobby.official.ownedHeroes(uid).then((owned) => {
+            client.owned = owned;
+            const e = client.room?.setHero(client.id, m.hero);
+            if (e) reject(e);
+          }, () => reject('No se pudo comprobar tu colección. Probá de nuevo.'));
+          return;
+        }
+        err = room.setHero(client.id, m.hero);
+        break;
       case 'settings': err = room.setSettings(client.id, m.settings); break;
       case 'start': err = room.start(client.id); break;
       case 'stop': err = room.stop(client.id); break;

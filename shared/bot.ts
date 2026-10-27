@@ -132,8 +132,8 @@ export function botInput(s: GameState, brain: BotBrain, rnd: () => number = Math
         else if (useE(d < 4 * R)) bits |= IN.E;
         break;
       case 'superman':
-        // láser en la última dirección de movimiento
-        if (useQ(!guarded && d < P.superman.laser.range * 0.85 && facing > 0.97 && towardGoal)) bits |= IN.Q;
+        // láser autoapuntado: basta con tener la pelota adelante y hacia el arco rival
+        if (useQ(!guarded && d < P.superman.laser.range * 0.85 && facing > 0.6 && towardGoal)) bits |= IN.Q;
         else if (useE(isAttacker && d > 8 * R)) bits |= IN.E;
         break;
       // héroes desbloqueables: tiros rectos sólo bien alineados y hacia el arco rival

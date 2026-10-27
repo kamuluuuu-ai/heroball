@@ -200,7 +200,7 @@ export const POWERS = {
   },
   superman: {
     /**
-     * Visión láser: se fija la dirección al activar (última dirección de
+     * Visión láser: se fija la dirección al activar (autoapuntado a pelota o rival; si no hay, última dirección de
      * movimiento), y tras `windup` ticks de aviso el haz resuelve un único
      * impacto por objetivo y queda visible `beamTicks`. `halfWidth` es la mitad
      * del ancho real del haz (el dibujo usa exactamente ese ancho).
@@ -419,7 +419,7 @@ function generated(P: PowerConfig, superMode: boolean): Record<Exclude<HeroId, '
   return {
     superman: {
       name: 'Superman',
-      q: { name: 'Visión láser', desc: `Tras ${secs(P.superman.laser.windup)} de aviso, rayo recto (${inR(P.superman.laser.range)}) hacia donde te movés: ${superMode ? 'atraviesa jugadores y empuja a cada uno una vez, y a la pelota' : 'empuja al primer objetivo (pelota o rival)'}. Paredes y postes lo bloquean.`, cooldown: P.superman.laser.cooldown },
+      q: { name: 'Visión láser', desc: `Tras ${secs(P.superman.laser.windup)} de aviso, rayo recto (${inR(P.superman.laser.range)}) que apunta solo a la pelota o a un rival: ${superMode ? 'atraviesa jugadores y empuja a cada uno una vez, y a la pelota' : 'empuja al primer objetivo (pelota o rival)'}. Paredes y postes lo bloquean.`, cooldown: P.superman.laser.cooldown },
       e: { name: superMode ? 'Vuelo supersónico' : 'Súper velocidad', desc: `+${pct(P.superman.superSpeed.mult - 1)} aceleración y velocidad durante ${secs(P.superman.superSpeed.ticks)}.`, cooldown: P.superman.superSpeed.cooldown },
     },
     hawkeye: {

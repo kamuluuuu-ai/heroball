@@ -140,8 +140,9 @@ const AIM_CONE = 90;
 /**
  * Qué busca el autoapuntado de cada Q que se dispara: sólo los objetivos a los
  * que el proyectil les hace algo (la flecha busca la pelota; la descarga
- * atraviesa la pelota y frena rivales). null: la Q no se autoapunta (el láser
- * de Superman va en la última dirección de movimiento).
+ * atraviesa la pelota y frena rivales). null: la Q no se autoapunta. El láser
+ * anticipa el objetivo según su aviso (velocidad equivalente alcance/aviso);
+ * sin objetivo va en la última dirección de movimiento.
  */
 function aimSpec(P: PowerConfig, hero: PlayerState['hero']): { range: number; speed: number; cone: number; ball: boolean; rivals: boolean } | null {
   switch (hero) {
@@ -149,6 +150,8 @@ function aimSpec(P: PowerConfig, hero: PlayerState['hero']): { range: number; sp
       return P.spider.web.autoAim ? { ...P.spider.web, cone: 180, ball: true, rivals: P.spider.web.grabsRivals } : null;
     case 'batman':
       return P.batman.batarang.autoAim ? { ...P.batman.batarang, cone: P.batman.batarang.autoAimCone, ball: true, rivals: true } : null;
+    case 'superman':
+      return { range: P.superman.laser.range, speed: P.superman.laser.range / Math.max(1, P.superman.laser.windup), cone: AIM_CONE, ball: true, rivals: true };
     case 'hawkeye':
       return { ...P.hawkeye.arrow, cone: AIM_CONE, ball: true, rivals: false };
     case 'widow':
@@ -351,10 +354,10 @@ export function activate(s: GameState, p: PlayerState, slot: 'q' | 'e'): boolean
     case 'superman':
       if (slot === 'q') {
         const c = P.superman.laser;
-        // dirección fijada al activar; el origen sigue a Superman durante el aviso
+        // dirección fijada al activar (autoapuntada); el origen sigue a Superman durante el aviso
         const z = addZone(s, p, 'laser', p.d.x, p.d.y, c.halfWidth, c.windup, c.windup + c.beamTicks);
-        z.dx = p.ax;
-        z.dy = p.ay;
+        z.dx = ax;
+        z.dy = ay;
         z.len = c.range;
         cd = c.cooldown;
       } else {

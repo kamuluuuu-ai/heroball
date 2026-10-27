@@ -93,26 +93,48 @@ describe('Superman Q: visión láser', () => {
     expect(c.range).toBe((mode === 'super' ? 18 : 12) * R);
   });
 
-  it('va en la última dirección de movimiento (sin autoapuntado) y respeta alcance y ancho', () => {
+  it('se autoapunta a la pelota o a un rival; sin objetivo va hacia donde se movió', () => {
     const c = POWERS.superman.laser;
-    // pelota a un costado: no la toca
+    // pelota fuera de la línea: el haz la busca
     const s = game([{ id: 'a', team: 'red', hero: 'superman' }]);
     place(s, 'a', -200, 0);
-    ball(s, -100, c.halfWidth + BALL.radius + 0.5);
+    ball(s, -100, 45);
     cast(s, 'a', 'q', c.windup + 5);
-    expect(speed(s.ball)).toBe(0);
-    // apenas dentro del ancho: la toca
+    expect(s.ball.vx).toBeGreaterThan(1);
+    expect(s.ball.vy).toBeGreaterThan(0.3);
+    // rival fuera de la línea (sin pelota cerca): también
+    const r = game([{ id: 'a', team: 'red', hero: 'superman' }, { id: 'b', team: 'blue', hero: 'hulk' }]);
+    place(r, 'a', -200, 0);
+    const b = place(r, 'b', -100, -50);
+    cast(r, 'a', 'q', c.windup + 5);
+    expect(b.d.vy).toBeLessThan(0);
+    // detrás no apunta; sin objetivo, dirección de movimiento
     const t = game([{ id: 'a', team: 'red', hero: 'superman' }]);
-    place(t, 'a', -200, 0);
-    ball(t, -100, c.halfWidth + BALL.radius - 0.5);
-    cast(t, 'a', 'q', c.windup + 5);
-    expect(t.ball.vx).toBeGreaterThan(1);
+    place(t, 'a', -100, 0, 0, -1);
+    ball(t, -100, 100);
+    cast(t, 'a', 'q');
+    const z = t.zones.find((q) => q.kind === 'laser')!;
+    expect([z.dx, z.dy]).toEqual([0, -1]);
+    run(t, c.windup + 5);
+    expect(speed(t.ball)).toBe(0);
     // fuera de alcance: nada
     const u = game([{ id: 'a', team: 'red', hero: 'superman' }]);
     place(u, 'a', -300, 0);
     ball(u, -300 + R + c.range + BALL.radius + 2, 0);
     cast(u, 'a', 'q', c.windup + 5);
     expect(speed(u.ball)).toBe(0);
+  });
+
+  it('ancho de impacto = ancho dibujado (Súper atraviesa al rival apuntado)', () => {
+    const c = SUPER_POWERS.superman.laser;
+    for (const [off, hit] of [[c.halfWidth + BALL.radius - 0.5, true], [c.halfWidth + BALL.radius + 0.5, false]] as [number, boolean][]) {
+      const s = game([{ id: 'a', team: 'red', hero: 'superman' }, { id: 'b', team: 'blue', hero: 'hulk' }], 'super');
+      place(s, 'a', -300, 0);
+      place(s, 'b', -200, 0);
+      ball(s, -70, off);
+      cast(s, 'a', 'q', c.windup + 5);
+      expect(speed(s.ball) > 0).toBe(hit);
+    }
   });
 
   it('Héroes: sólo el primer objetivo; Súper atraviesa jugadores y llega a la pelota (un impacto cada uno)', () => {

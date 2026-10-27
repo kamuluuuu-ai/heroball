@@ -19,8 +19,11 @@ export interface Transport {
 export const P2P = import.meta.env.VITE_P2P === '1';
 
 export function wsTransport(): Transport {
-  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const ws = new WebSocket(`${proto}://${location.host}/ws`);
+  // backend en otro origen (VITE_API_URL) o el mismo que sirve la página
+  const api = (import.meta.env.VITE_API_URL as string | undefined)?.trim().replace(/\/+$/, '');
+  const base = api ? new URL(api) : location;
+  const proto = base.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${proto}://${base.host}/ws`);
   const t: Transport = {
     send: (raw) => ws.readyState === WebSocket.OPEN && ws.send(raw),
     close: () => ws.close(),

@@ -1,8 +1,8 @@
 // Conexión con la sala (servidor Node por WebSocket, o anfitrión en navegador
 // por WebRTC). Los snapshots van directo a la sesión de juego (sin pasar por
 // React); la interfaz sólo escucha sala, chat y estado.
-import { signAdmin } from '../../../shared/admin';
-import { PROTOCOL_VERSION, type AdminState, type ClientMsg, type RoomInfo, type RoomSettings, type RoomSummary, type ServerMsg } from '../../../shared/protocol';
+import { PROTOCOL_VERSION, type AccountInfo, type AdminState, type ClientMsg, type RoomInfo, type RoomSettings, type RewardInfo, type RoomSummary, type ServerMsg } from '../../../shared/protocol';
+import { account } from '../account';
 import type { GameEvent, GameState, Side } from '../../../shared/types';
 import { BrowserHost, P2P, peerGuestTransport, wsTransport, type Transport } from './transport';
 
@@ -41,9 +41,13 @@ export class NetClient {
   /** Latencia artificial (ms, sólo para pruebas) aplicada a envío y recepción. */
   fakeLag = 0;
   sink: SnapshotSink | null = null;
-  /** Clave privada de administrador (base64), si el usuario la cargó. */
-  adminKey = '';
-  /** Verificado como administrador en esta conexión. */
+  /** Cuenta verificada por el servidor en esta conexión (null = invitado). */
+  account: AccountInfo | null = null;
+  /** ¿El servidor admite partidas oficiales? */
+  officialServer = false;
+  /** Resultado de la última partida oficial. */
+  reward: RewardInfo | null = null;
+  /** Verificado como moderador en esta conexión. */
   isAdmin = false;
   adminError: string | null = null;
   adminState: AdminState | null = null;
@@ -71,7 +75,7 @@ export class NetClient {
   connect(nick: string, joinRoom?: string): void {
     this.nick = nick;
     if (this.transport && this.status !== 'closed') {
-      this.send({ t: 'hello', nick, v: PROTOCOL_VERSION });
+      this.send(this.hello());
       if (joinRoom) this.send({ t: 'join', room: joinRoom });
       return;
     }
@@ -99,7 +103,7 @@ export class NetClient {
       this.status = 'open';
       this.error = null;
       this.ping = 0;
-      this.send({ t: 'hello', nick: this.nick, v: PROTOCOL_VERSION });
+      this.send(this.hello());
       window.clearInterval(this.pingTimer);
       this.lastMsgAt = performance.now();
       this.pingTimer = window.setInterval(() => {
@@ -125,31 +129,48 @@ export class NetClient {
     };
   }
 
-  /** Firma el desafío de esta conexión con la clave de administrador. */
-  private proveAdmin(): void {
-    if (!this.adminKey || !this.nonce || this.isAdmin) return;
+  /**
+   * Saludo. El token de sesión sólo viaja al servidor propio (que lo verifica);
+   * nunca a un anfitrión P2P, que es otro navegador y podría robarlo.
+   */
+  private hello(): ClientMsg {
+    const token = !this.p2p && account.token ? account.token : undefined;
+    return { t: 'hello', nick: this.nick, v: PROTOCOL_VERSION, token };
+  }
+
+  /**
+   * Moderación en salas P2P: el servidor firma el desafío de esta conexión si
+   * la cuenta tiene rol de moderador. En el servidor propio el rol llega con la
+   * cuenta verificada y no hace falta firma.
+   */
+  proveModerator(): void {
+    if (!this.p2p || !this.nonce || this.isAdmin || !account.hasRole('moderator')) return;
     const t = this.transport;
-    signAdmin(this.adminKey, this.nonce, this.id)
-      .then((sig) => { if (this.transport === t) this.send({ t: 'admin', sig }); })
-      .catch(() => {
-        this.adminError = 'La clave de administrador no tiene un formato válido.';
+    const nonce = this.nonce;
+    account.moderationTicket(nonce, this.id)
+      .then((sig) => { if (this.transport === t && this.nonce === nonce) this.send({ t: 'admin', sig }); })
+      .catch((e: Error) => {
+        this.adminError = `No se pudo obtener el permiso de moderación: ${e.message}`;
         this.emit();
       });
   }
 
-  setAdminKey(key: string): void {
-    this.adminKey = key.trim();
-    this.adminError = null;
-    if (!this.adminKey) {
-      this.emit();
-      return;
-    }
-    this.proveAdmin();
+  dismissReward(): void {
+    this.reward = null;
+    this.emit();
+  }
+
+  /** Reconecta con el servidor (p. ej. tras iniciar o cerrar sesión) si no está en una sala. */
+  reconnect(): void {
+    if (this.p2p || this.room || !this.nick) return;
+    this.disconnect();
+    this.connect(this.nick);
   }
 
   private detach(): void {
     window.clearInterval(this.pingTimer);
     this.isAdmin = false;
+    this.account = null;
     this.adminState = null;
     this.nonce = '';
     this.transport = null;
@@ -228,7 +249,13 @@ export class NetClient {
       case 'welcome':
         this.id = m.id;
         this.nonce = m.nonce;
-        this.proveAdmin();
+        this.account = m.account;
+        this.officialServer = m.official;
+        if (m.account) {
+          this.nick = m.account.name;
+          if (m.account.roles.includes('moderator')) this.isAdmin = true;
+        }
+        this.proveModerator();
         if (!this.p2p) this.send({ t: 'list' });
         if (this.pendingJoin) {
           this.send({ t: 'join', room: this.pendingJoin });
@@ -275,10 +302,15 @@ export class NetClient {
       }
       case 'admin':
         this.isAdmin = m.ok;
-        this.adminError = m.ok ? null : 'La clave de administrador no coincide.';
+        this.adminError = m.ok ? null : 'El servidor no reconoció el permiso de moderación.';
         break;
       case 'adminstate':
         this.adminState = m.s;
+        break;
+      case 'reward':
+        this.reward = m.r;
+        // el saldo cambió en el servidor: recargar el perfil
+        void account.refresh();
         break;
       case 'error':
         this.error = m.msg;

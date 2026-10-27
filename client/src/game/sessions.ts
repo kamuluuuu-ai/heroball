@@ -1,6 +1,6 @@
 // Sesiones de juego: local (entrenamiento / bots) y en red (predicción del
 // jugador local, reconciliación e interpolación de los demás).
-import { HeroId, TICK_MS } from '../../../shared/config';
+import { HERO_IDS, HeroId, TICK_MS } from '../../../shared/config';
 import { BotBrain, botInput, makeBrain } from '../../../shared/bot';
 import { cloneState, createGame, requestHero, resetKickoff, setInput, step } from '../../../shared/game';
 import type { Disc } from '../../../shared/physics';
@@ -78,16 +78,16 @@ export class LocalSession implements Session {
     const players: { id: string; team: Team; hero: HeroId }[] = [{ id: 'me', team: 'red', hero: o.hero }];
     this.brains = [];
     if (o.kind === 'bots') {
-      const heroes: HeroId[] = ['batman', 'hulk', 'superman', 'spider'];
+      const heroes = HERO_IDS.filter((h) => h !== o.hero).sort(() => Math.random() - 0.5);
       let n = 0;
       for (let i = 1; i < o.teamSize; i++) {
         const id = `bot-r${i}`;
-        players.push({ id, team: 'red', hero: heroes[n++ % 4] });
+        players.push({ id, team: 'red', hero: heroes[n++ % heroes.length] });
         this.brains.push(makeBrain(id, o.botSkill));
       }
       for (let i = 0; i < o.teamSize; i++) {
         const id = `bot-b${i}`;
-        players.push({ id, team: 'blue', hero: heroes[n++ % 4] });
+        players.push({ id, team: 'blue', hero: heroes[n++ % heroes.length] });
         this.brains.push(makeBrain(id, o.botSkill));
       }
     }

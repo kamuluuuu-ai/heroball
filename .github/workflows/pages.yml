@@ -29,6 +29,8 @@ jobs:
       - run: npm run build:pages
         env:
           VITE_BASE: /${{ github.event.repository.name }}/
+          # URL del backend de cuentas/economía (variable del repositorio). Vacía: sitio sólo con invitados.
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist-pages

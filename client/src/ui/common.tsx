@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
-import { HEROES, HERO_IDS, heroInfo, type HeroId } from '../../../shared/config';
+import { useEffect, useRef } from 'react';
+import { HEROES, HERO_CATALOG, HERO_IDS, RARITY_LABEL, heroInfo, type HeroId, type Rarity } from '../../../shared/config';
 import type { GameMode } from '../../../shared/types';
 import { setAudio } from '../game/audio';
 import { drawHero, drawPowerIcon } from '../game/heroArt';
-import { net } from '../game/net';
 import type { Prefs } from '../prefs';
 
 export function HeroBadge({ hero, size = 28, team }: { hero: HeroId; size?: number; team?: 'red' | 'blue' | 'spec' }) {
@@ -40,29 +39,57 @@ function PowerIcon({ hero, slot }: { hero: HeroId; slot: 'q' | 'e' }) {
   return <canvas ref={ref} width={40} height={40} className="power-icon" />;
 }
 
-export function HeroPicker({ value, onChange, team, note, mode = 'heroes' }: { value: HeroId; onChange: (h: HeroId) => void; team?: 'red' | 'blue' | 'spec'; note?: string; mode?: GameMode }) {
-  const h = heroInfo(value, mode);
+export const RARITY_ICON: Record<Rarity, string> = { common: '●', rare: '◆', epic: '★', legendary: '♛' };
+
+/** Rareza con color, texto e icono (no depende sólo del color). */
+export function RarityTag({ rarity }: { rarity: Rarity }) {
+  return <span className={`rarity r-${rarity}`}>{RARITY_ICON[rarity]} {RARITY_LABEL[rarity]}</span>;
+}
+
+export function PowerList({ hero, mode = 'heroes' }: { hero: HeroId; mode?: GameMode }) {
+  const h = heroInfo(hero, mode);
+  return (
+    <div className="hero-powers">
+      {(['q', 'e'] as const).map((k) => (
+        <div key={k} className="hero-power">
+          <PowerIcon hero={hero} slot={k} />
+          <div>
+            <b>{k.toUpperCase()} · {h[k].name}</b> <span className="muted">(recarga {Math.round(h[k].cooldown / 60)} s)</span>
+            <div className="muted">{h[k].desc}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function HeroPicker({ value, onChange, team, note, mode = 'heroes', locked }: {
+  value: HeroId; onChange: (h: HeroId) => void; team?: 'red' | 'blue' | 'spec'; note?: string; mode?: GameMode;
+  /** Héroes no disponibles en esta partida (oficial: sólo los de la colección). */
+  locked?: (h: HeroId) => boolean;
+}) {
   return (
     <div className="hero-picker">
-      <div className="hero-row">
-        {HERO_IDS.map((id) => (
-          <button key={id} className={`hero-btn ${id === value ? 'sel' : ''}`} onClick={() => onChange(id)} title={HEROES[id].name}>
-            <HeroBadge hero={id} size={34} team={team} />
-            <span>{HEROES[id].name}</span>
-          </button>
-        ))}
+      <div className="hero-row" role="radiogroup" aria-label="Héroe">
+        {HERO_IDS.map((id) => {
+          const lock = locked?.(id) ?? false;
+          return (
+            <button
+              key={id}
+              role="radio"
+              aria-checked={id === value}
+              className={`hero-btn ${id === value ? 'sel' : ''} ${lock ? 'locked' : ''} r-${HERO_CATALOG[id].rarity}`}
+              disabled={lock}
+              onClick={() => onChange(id)}
+              title={lock ? `${HEROES[id].name}: bloqueado en tu colección` : HEROES[id].name}
+            >
+              <HeroBadge hero={id} size={30} team={team} />
+              <span>{HEROES[id].name}{lock && <span aria-label="bloqueado"> 🔒</span>}</span>
+            </button>
+          );
+        })}
       </div>
-      <div className="hero-powers">
-        {(['q', 'e'] as const).map((k) => (
-          <div key={k} className="hero-power">
-            <PowerIcon hero={value} slot={k} />
-            <div>
-              <b>{k.toUpperCase()} · {h[k].name}</b> <span className="muted">({Math.round(h[k].cooldown / 60)} s)</span>
-              <div className="muted">{h[k].desc}</div>
-            </div>
-          </div>
-        ))}
-      </div>
+      <PowerList hero={value} mode={mode} />
       {note && <div className="muted small">{note}</div>}
     </div>
   );
@@ -101,38 +128,7 @@ export function SettingsPanel({ prefs, setPrefs }: { prefs: Prefs; setPrefs: (p:
       <label className="row" title="Muestra radios físicos, alcance de patada, separación entre bordes y posiciones de red">
         <input type="checkbox" checked={prefs.debug} onChange={(e) => setPrefs({ ...prefs, debug: e.target.checked })} /> Depuración de contacto
       </label>
-      <AdminKeyField prefs={prefs} setPrefs={setPrefs} />
     </div>
-  );
-}
-
-/** Clave privada de administrador: se guarda sólo en este navegador y nunca se envía (sólo firmas). */
-function AdminKeyField({ prefs, setPrefs }: { prefs: Prefs; setPrefs: (p: Prefs) => void }) {
-  const [, force] = useState(0);
-  useEffect(() => net.subscribe(() => force((n) => n + 1)), []);
-  const status = !prefs.adminKey
-    ? null
-    : net.adminError
-      ? <span className="error-text">{net.adminError}</span>
-      : net.isAdmin
-        ? <span className="ok-text">Verificado como administrador.</span>
-        : <span className="muted">Se verifica al entrar a una sala.</span>;
-  return (
-    <details className="admin-key" open={!!prefs.adminKey}>
-      <summary>Administración</summary>
-      <label className="row">
-        Clave
-        <input
-          type="password"
-          autoComplete="off"
-          spellCheck={false}
-          placeholder="Clave privada de administrador"
-          value={prefs.adminKey}
-          onChange={(e) => setPrefs({ ...prefs, adminKey: e.target.value.trim() })}
-        />
-      </label>
-      {status && <div className="small">{status}</div>}
-    </details>
   );
 }
 

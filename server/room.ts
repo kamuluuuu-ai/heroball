@@ -1,5 +1,5 @@
 // Salas en memoria, permisos y bucle autoritativo de cada partido.
-import { HeroId, SNAPSHOT_EVERY_TICKS, STARTER_IDS, TICK_RATE } from '../shared/config';
+import { HERO_IDS, HeroId, SNAPSHOT_EVERY_TICKS, STARTER_IDS, TICK_RATE } from '../shared/config';
 import { BotBrain, botInput, makeBrain } from '../shared/bot';
 import { ECONOMY } from '../shared/economy';
 import { addPlayer, createGame, removePlayer, requestHero, setInput, step } from '../shared/game';
@@ -307,8 +307,7 @@ export class Room {
     if (this.members.size >= this.settings.maxPlayers) return 'La sala está llena.';
     if (this.teamCount(side) >= this.settings.teamSize) return 'Ese equipo está completo.';
     const id = 'b' + (++botCounter).toString(36);
-    const heroes: HeroId[] = ['spider', 'batman', 'hulk', 'superman'];
-    const hero = heroes[botCounter % 4];
+    const hero = HERO_IDS[botCounter % HERO_IDS.length];
     const m: Member = {
       id, nick: `Bot ${botCounter}`, side, hero, bot: true, joinedAt: ++joinCounter,
       brain: makeBrain(id, 0.75), queue: [], lastBits: 0, ack: 0, starved: 0, lastActive: 0,

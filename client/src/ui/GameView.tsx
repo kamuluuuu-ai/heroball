@@ -115,7 +115,7 @@ export function GameView(p: Props) {
         </div>
         <div className="topbar-right">
           {p.status}
-          <button className="tb-btn" onClick={fullscreen} title="Pantalla completa">⛶</button>
+          <button className="tb-btn" onClick={fullscreen} title="Pantalla completa" aria-label="Pantalla completa">⛶</button>
           <button className="tb-btn" onClick={p.onToggleMenu} title="Menú (Esc)">Menú</button>
         </div>
       </div>
@@ -135,7 +135,7 @@ export function GameView(p: Props) {
 /** Actualiza el HUD directamente en el DOM, sólo cuando cambia algo. */
 class HudWriter {
   private last = { red: -1, blue: -1, clock: '', hero: '', q: '', e: '', idle: true, mode: '' };
-  private q: { root: HTMLDivElement; cd: HTMLSpanElement; fill: HTMLDivElement; icon: HTMLCanvasElement } | null = null;
+  private q: { root: HTMLDivElement; cd: HTMLSpanElement; fill: HTMLDivElement; icon: HTMLCanvasElement; label: HTMLSpanElement; state: HTMLSpanElement } | null = null;
   private e: typeof this.q = null;
 
   constructor(
@@ -158,9 +158,18 @@ class HudWriter {
     k.textContent = key;
     const cd = document.createElement('span');
     cd.className = 'pcd';
-    root.append(icon, fill, k, cd);
+    const box = document.createElement('div');
+    box.className = 'pbox';
+    box.append(icon, fill, k, cd);
+    // nombre del poder y estado en texto: no depende del color ni de pasar el mouse
+    const label = document.createElement('span');
+    label.className = 'plabel';
+    const state = document.createElement('span');
+    state.className = 'pstate';
+    root.append(box, label, state);
+    root.setAttribute('role', 'status');
     this.powers.append(root);
-    return { root, cd, fill, icon };
+    return { root, cd, fill, icon, label, state };
   }
 
   update(s: GameState | null, me: string): void {
@@ -196,11 +205,15 @@ class HudWriter {
         c.clearRect(0, 0, 56, 56);
         drawPowerIcon(c, p.hero, key, 56);
         sl.root.title = `${info[key].name}: ${info[key].desc}`;
+        sl.label.textContent = info[key].name;
       }
     }
     const blocked = s.phase !== 'playing' || s.paused;
-    this.paint(this.q, p.cdQ, info.q.cooldown, blocked, p.superShot > 0 || false);
-    this.paint(this.e!, p.cdE, info.e.cooldown, blocked, p.dash > 0 || p.fury > 0 || p.superSpeed > 0);
+    // efectos con duración: el poder está "activo" mientras duran
+    const rushQ = p.rush > 0 && p.hero === 'panther';
+    const rushE = p.rush > 0 && p.hero === 'hawkeye';
+    this.paint(this.q, p.cdQ, info.q.cooldown, blocked, p.superShot > 0 || p.sprint > 0 || rushQ);
+    this.paint(this.e!, p.cdE, info.e.cooldown, blocked, p.dash > 0 || p.fury > 0 || p.superSpeed > 0 || p.guard > 0 || p.evade > 0 || p.thrusters > 0 || rushE);
   }
 
   private paint(sl: NonNullable<typeof this.q>, cd: number, total: number, blocked: boolean, active: boolean) {
@@ -211,6 +224,8 @@ class HudWriter {
     sl.root.classList.toggle('ready', cd === 0 && !blocked);
     sl.root.classList.toggle('blocked', blocked);
     sl.root.classList.toggle('active', active);
+    const state = active ? 'Activo' : blocked ? 'En pausa' : cd > 0 ? 'Recargando' : 'Listo';
+    if (sl.state.textContent !== state) sl.state.textContent = state;
   }
 }
 
@@ -292,9 +307,9 @@ function TouchControls({ input }: { input: React.MutableRefObject<InputState | n
         </div>
       </div>
       <div className="touch-btns">
-        <button className="tbtn q" {...btn(IN.Q)}>Q</button>
-        <button className="tbtn e" {...btn(IN.E)}>E</button>
-        <button className="tbtn kick" {...btn(IN.KICK)}>⚽</button>
+        <button className="tbtn q" aria-label="Poder Q" {...btn(IN.Q)}>Q</button>
+        <button className="tbtn e" aria-label="Poder E" {...btn(IN.E)}>E</button>
+        <button className="tbtn kick" aria-label="Patear" {...btn(IN.KICK)}>⚽</button>
       </div>
     </div>
   );

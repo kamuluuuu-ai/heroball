@@ -10,7 +10,7 @@ import { AIM, COLORS, GEM_COLOR, GEM_IDS, KICK, STADIUM, TICK_RATE, powersFor } 
 import { stadium, type Seg } from '../../../shared/physics';
 import type { GameEvent, GameState, PlayerState, Projectile, Team, Zone } from '../../../shared/types';
 import { IN } from '../../../shared/types';
-import { drawHero } from './heroArt';
+import { drawGemIcon, drawHero } from './heroArt';
 import { autoAim, boltTarget, gloveTarget, grappleAim, quizTarget } from '../../../shared/powers';
 
 interface Fx {
@@ -672,6 +672,32 @@ export class Renderer {
       c.stroke();
     }
     c.restore();
+  }
+
+  /**
+   * Guantelete de Thanos: las cinco gemas en arco sobre el disco, en el orden de
+   * las teclas 1–5. La elegida es grande y brillante (con anillo de su color);
+   * las demás, chicas y apagadas, y más apagadas si están recargando.
+   */
+  private drawGauntlet(c: CanvasRenderingContext2D, s: GameState, p: PlayerState): void {
+    const { x, y, r } = p.d;
+    const sel = GEM_IDS[p.gem];
+    c.beginPath();
+    c.arc(x, y, r + 2.5, 0, Math.PI * 2);
+    c.lineWidth = 2;
+    c.strokeStyle = GEM_COLOR[sel];
+    c.stroke();
+    GEM_IDS.forEach((g, i) => {
+      const a = -Math.PI / 2 + (i - 2) * 0.42;
+      const big = i === p.gem;
+      const d = r + (big ? 10 : 7);
+      const size = big ? 13 : 7;
+      c.save();
+      c.globalAlpha = big ? 1 : p.gemCd[i] > 0 && !s.noCd ? 0.3 : 0.65;
+      c.translate(x + Math.cos(a) * d - size / 2, y + Math.sin(a) * d - size / 2);
+      drawGemIcon(c, GEM_COLOR[g], size);
+      c.restore();
+    });
   }
 
   /** Pelota de la ilusión: igual a la real para el equipo engañado (sin pistas). */
@@ -1369,6 +1395,7 @@ export class Renderer {
     c.lineWidth = 2;
     c.strokeStyle = p.input & IN.KICK && p.stun === 0 ? '#fff' : '#000';
     c.stroke();
+    if (p.hero === 'thanos' && s.mode !== 'classic') this.drawGauntlet(c, s, p);
 
     if (p.trap > 0) {
       // atrapado por la dona: aro glaseado alrededor

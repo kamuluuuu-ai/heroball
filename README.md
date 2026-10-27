@@ -154,3 +154,7 @@ secuencias sin duplicar poderes, un partido 3v3 completo con bots sin valores in
   binario y deltas.
 - Un solo estadio (equivalente al *Classic*). No se cargan archivos `.hbs`.
 - La IA de los bots es simple.
+
+## Licencia
+
+MIT. Ver [LICENSE](LICENSE). HeroBall es un proyecto independiente; HaxBall es una marca de sus respectivos dueños.

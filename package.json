@@ -2,6 +2,7 @@
   "name": "heroball",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "HeroBall: fútbol 2D multijugador con superpoderes (proyecto independiente, inspirado en HaxBall)",
   "scripts": {

@@ -38,11 +38,11 @@ describe('reglas comunes', () => {
     for (let i = 0; i < 30; i++) activations += tick(s, { a: IN.Q }).filter((e) => e.type === 'power').length;
     expect(activations).toBe(1);
     const p = s.players[0];
-    expect(p.cdQ).toBe(POWERS.superman.superShot.cooldown - 30);
+    expect(p.cdQ).toBe(POWERS.superman.laser.cooldown - 30);
     // soltar y apretar durante cooldown: nada
     tick(s, { a: 0 });
     expect(tick(s, { a: IN.Q }).some((e) => e.type === 'power')).toBe(false);
-    for (let i = 0; i < POWERS.superman.superShot.cooldown; i++) tick(s, { a: 0 });
+    for (let i = 0; i < POWERS.superman.laser.cooldown; i++) tick(s, { a: 0 });
     expect(p.cdQ).toBe(0);
     expect(tick(s, { a: IN.Q }).some((e) => e.type === 'power')).toBe(true);
   });
@@ -350,25 +350,6 @@ describe('Hulk', () => {
 });
 
 describe('Superman', () => {
-  it('el súper disparo potencia sólo la siguiente patada y vence a los 2 s', () => {
-    const s = game([{ id: 'a', team: 'red', hero: 'superman' }]);
-    place(s, 'a', -200, 0);
-    tick(s, { a: IN.Q });
-    s.ball.x = -200 + 26; s.ball.y = 0;
-    tick(s, { a: IN.KICK });
-    expect(s.ball.vx).toBeCloseTo(PLAYER.kickStrength * 1.5 * BALL.damping, 3);
-    expect(s.players[0].superShot).toBe(0);
-
-    const s2 = game([{ id: 'a', team: 'red', hero: 'superman' }]);
-    place(s2, 'a', -200, 0);
-    tick(s2, { a: IN.Q });
-    for (let i = 0; i < 125; i++) tick(s2, { a: 0 });
-    s2.ball.x = -200 + 26; s2.ball.y = 0; s2.ball.vx = 0;
-    place(s2, 'a', -200, 0);
-    tick(s2, { a: IN.KICK });
-    expect(s2.ball.vx).toBeCloseTo(PLAYER.kickStrength * BALL.damping, 3);
-  });
-
   it('la súper velocidad sube 40 % la velocidad máxima', () => {
     const s = game([{ id: 'a', team: 'red', hero: 'superman' }]);
     place(s, 'a', -400, 150);
@@ -495,15 +476,4 @@ describe('modo Súper', () => {
     expect(sn.slowPct).toBeCloseTo(SUPER_POWERS.hulk.slam.stunPct, 5);
   });
 
-  it('el disparo de acero de Superman patea ×2,2', () => {
-    const kick = (mode: 'heroes' | 'super') => {
-      const s = game([{ id: 'a', team: 'red', hero: 'superman' }], mode);
-      place(s, 'a', -100, 0);
-      s.ball.x = -100 + PLAYER.radius + BALL.radius + 1; s.ball.y = 0;
-      tick(s, { a: IN.Q });
-      tick(s, { a: IN.KICK });
-      return s.ball.vx;
-    };
-    expect(kick('super') / kick('heroes')).toBeCloseTo(SUPER_POWERS.superman.superShot.kickMult / POWERS.superman.superShot.kickMult, 1);
-  });
 });

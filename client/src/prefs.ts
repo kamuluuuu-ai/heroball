@@ -12,10 +12,12 @@ export interface Prefs {
   touch: 'auto' | 'on' | 'off';
   /** Capa de depuración de contacto (radios, alcance de patada, posiciones de red). */
   debug: boolean;
+  /** Efectos de poderes: completos o reducidos (sin partículas ni animaciones; los avisos esenciales quedan). */
+  effects: 'full' | 'reduced';
 }
 
 const KEY = 'heroball.prefs.v1';
-const DEFAULTS: Prefs = { nick: '', hero: 'spider', sound: true, volume: 0.5, zoom: 1, showNames: true, touch: 'auto', debug: false };
+const DEFAULTS: Prefs = { nick: '', hero: 'spider', sound: true, volume: 0.5, zoom: 1, showNames: true, touch: 'auto', debug: false, effects: 'full' };
 
 /** Campos que versiones anteriores guardaban y ya no se usan (la clave de administrador ya no vive en el navegador). */
 const OBSOLETE = ['adminKey'];

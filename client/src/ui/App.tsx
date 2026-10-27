@@ -318,7 +318,7 @@ function PlayTab({ prefs, setPrefs, nick, onOffline, onLogin, onHeroes }: {
                 <button key={r.id} className="room-row" onClick={() => n.send({ t: 'join', room: r.id })} aria-label={`Entrar a ${r.name}`}>
                   <span className="rname">{r.name}</span>
                   <span>{r.players}/{r.maxPlayers}</span>
-                  <span>{MODE_LABEL[r.mode]} {r.teamSize}v{r.teamSize}{r.playing ? ' · en juego' : ''}</span>
+                  <span>{MODE_LABEL[r.mode]} {r.teamSize}v{r.teamSize}{r.cooldowns === 'none' && r.mode !== 'classic' ? ' · sin cooldowns' : ''}{r.playing ? ' · en juego' : ''}</span>
                   <span>{r.official ? <span className="tag official">Oficial</span> : <span className="tag">Casual</span>}</span>
                 </button>
               ))}
@@ -365,41 +365,62 @@ function ConnBadge() {
   return <span className={`conn ${n.status}`} role="status">● {label}</span>;
 }
 
-function SettingsFields({ s, onChange, disabled }: { s: RoomSettings; onChange: (p: Partial<RoomSettings>) => void; disabled?: boolean }) {
+/** Etiqueta visible de partidas sin cooldowns (en sala y en partido). */
+function NoCdTag({ on }: { on: boolean }) {
+  return on ? <span className="tag nocd" title="Sin espera de recarga. Partida casual: sin recompensas ni clasificación.">Sin cooldowns</span> : null;
+}
+
+/** Selector Cooldowns: Normales / Sin cooldowns (deshabilitado en Clásico, con explicación). */
+function CooldownsField({ mode, value, onChange, disabled }: { mode: GameMode; value: RoomSettings['cooldowns']; onChange: (v: RoomSettings['cooldowns']) => void; disabled?: boolean }) {
+  const classic = mode === 'classic';
+  return (
+    <label title={classic ? 'El modo Clásico no tiene poderes: no hay recargas que quitar.' : 'Sin cooldowns: los poderes no esperan recarga (duraciones y anticipaciones siguen). Siempre casual.'}>Cooldowns
+      <select disabled={disabled || classic} value={classic ? 'normal' : value} onChange={(e) => onChange(e.target.value as RoomSettings['cooldowns'])}>
+        <option value="normal">Normales</option>
+        <option value="none">Sin cooldowns</option>
+      </select>
+      {classic && <span className="muted small">No aplica en Clásico (sin poderes).</span>}
+    </label>
+  );
+}
+
+function SettingsFields({ s, onChange, disabled, playing }: { s: RoomSettings; onChange: (p: Partial<RoomSettings>) => void; disabled?: boolean; playing?: boolean }) {
   const n = useNet();
-  const canOfficial = n.officialServer && !n.p2p && s.mode !== 'super';
+  const canOfficial = n.officialServer && !n.p2p && s.mode !== 'super' && s.cooldowns !== 'none';
   return (
     <div className="fields">
       <label>Modo
-        <select disabled={disabled} value={s.mode} onChange={(e) => onChange({ mode: e.target.value as GameMode, ...(e.target.value === 'super' ? { official: false } : {}) })}>
+        <select disabled={disabled || playing} value={s.mode} onChange={(e) => onChange({ mode: e.target.value as GameMode, ...(e.target.value === 'super' ? { official: false } : {}) })}>
           <option value="heroes">Héroes</option>
           <option value="super">Súper (poderes potenciados)</option>
           <option value="classic">Clásico (sin poderes)</option>
         </select>
       </label>
       <label>Equipos
-        <select disabled={disabled} value={s.teamSize} onChange={(e) => onChange({ teamSize: Number(e.target.value) as 1 | 2 | 3 })}>
+        <select disabled={disabled || playing} value={s.teamSize} onChange={(e) => onChange({ teamSize: Number(e.target.value) as 1 | 2 | 3 })}>
           <option value={1}>1v1</option><option value={2}>2v2</option><option value={3}>3v3</option>
         </select>
       </label>
       <label>Tiempo
-        <select disabled={disabled} value={s.timeLimitMin} onChange={(e) => onChange({ timeLimitMin: Number(e.target.value) })}>
+        <select disabled={disabled || playing} value={s.timeLimitMin} onChange={(e) => onChange({ timeLimitMin: Number(e.target.value) })}>
           {[0, 1, 2, 3, 4, 5, 7, 10].map((v) => <option key={v} value={v}>{v === 0 ? 'Sin límite' : `${v} min`}</option>)}
         </select>
       </label>
       <label>Goles
-        <select disabled={disabled} value={s.scoreLimit} onChange={(e) => onChange({ scoreLimit: Number(e.target.value) })}>
+        <select disabled={disabled || playing} value={s.scoreLimit} onChange={(e) => onChange({ scoreLimit: Number(e.target.value) })}>
           {[0, 1, 2, 3, 4, 5, 7, 10].map((v) => <option key={v} value={v}>{v === 0 ? 'Sin límite' : v}</option>)}
         </select>
       </label>
       <label>Capacidad
-        <select disabled={disabled} value={s.maxPlayers} onChange={(e) => onChange({ maxPlayers: Number(e.target.value) })}>
+        <select disabled={disabled || playing} value={s.maxPlayers} onChange={(e) => onChange({ maxPlayers: Number(e.target.value) })}>
           {[2, 4, 6, 8, 10, 12, 16].map((v) => <option key={v} value={v}>{v}</option>)}
         </select>
       </label>
+      {/* con el partido en curso sólo se puede cambiar esto: se aplica al reiniciar */}
+      <CooldownsField mode={s.mode} value={s.cooldowns} disabled={disabled} onChange={(cooldowns) => onChange({ cooldowns, ...(cooldowns === 'none' && !playing ? { official: false } : {}) })} />
       {n.officialServer && !n.p2p && (
-        <label className="check" title={canOfficial ? 'Cuenta para recompensas: sólo jugadores con cuenta, sin bots' : 'El modo Súper no puede ser oficial'}>
-          <span><input type="checkbox" disabled={disabled || !canOfficial} checked={s.official && canOfficial} onChange={(e) => onChange({ official: e.target.checked })} /> Oficial (recompensas)</span>
+        <label className="check" title={canOfficial ? 'Cuenta para recompensas: sólo jugadores con cuenta, sin bots' : 'El modo Súper y las partidas sin cooldowns no pueden ser oficiales'}>
+          <span><input type="checkbox" disabled={disabled || playing || !canOfficial} checked={s.official && canOfficial} onChange={(e) => onChange({ official: e.target.checked })} /> Oficial (recompensas)</span>
         </label>
       )}
     </div>
@@ -453,6 +474,7 @@ function OfflineSetup({ kind, prefs, setPrefs, onCancel, onStart }: {
   const [mode, setMode] = useState<GameMode>('heroes');
   const [teamSize, setTeamSize] = useState<1 | 2 | 3>(1);
   const [skill, setSkill] = useState(0.6);
+  const [cooldowns, setCooldowns] = useState<RoomSettings['cooldowns']>('normal');
   return (
     <div>
       <h2>{kind === 'training' ? 'Entrenamiento (sin conexión)' : 'Partido contra bots (sin conexión)'}</h2>
@@ -465,6 +487,7 @@ function OfflineSetup({ kind, prefs, setPrefs, onCancel, onStart }: {
             <option value="classic">Clásico</option>
           </select>
         </label>
+        <CooldownsField mode={mode} value={cooldowns} onChange={setCooldowns} />
         {kind === 'bots' && (
           <>
             <label>Equipos
@@ -485,7 +508,7 @@ function OfflineSetup({ kind, prefs, setPrefs, onCancel, onStart }: {
       <div className="btn-row">
         <button onClick={onCancel}>Volver</button>
         <span className="grow" />
-        <button className="primary" onClick={() => onStart({ kind, mode, hero: prefs.hero, teamSize, timeLimitMin: 3, scoreLimit: 3, botSkill: skill })}>Jugar</button>
+        <button className="primary" onClick={() => onStart({ kind, mode, hero: prefs.hero, teamSize, timeLimitMin: 3, scoreLimit: 3, botSkill: skill, noCooldowns: cooldowns === 'none' && mode !== 'classic' })}>Jugar</button>
       </div>
     </div>
   );
@@ -520,7 +543,7 @@ function OnlineRoom({ prefs, setPrefs }: { prefs: Prefs; setPrefs: (p: Prefs) =>
       chat={room.playing && !open ? { lines: n.chat, send: (text) => n.send({ t: 'chat', text }) } : undefined}
       menuOpen={open}
       onToggleMenu={() => setMenu((v) => !v)}
-      status={<>{room.settings.official ? <span className="tag official">Oficial</span> : <span className="tag">Casual</span>}<ConnBadge /></>}
+      status={<>{room.settings.official ? <span className="tag official">Oficial</span> : <span className="tag">Casual</span>}<NoCdTag on={room.settings.cooldowns === 'none' && room.settings.mode !== 'classic'} /><ConnBadge /></>}
       idle={null}
       menu={<RoomPanel room={room} prefs={prefs} setPrefs={setPrefs} onClose={room.playing ? () => setMenu(false) : undefined} />}
     />
@@ -603,6 +626,7 @@ function RoomPanel({ room, prefs, setPrefs, onClose }: { room: RoomInfo; prefs: 
       <h1>
         {room.name}
         {official ? <span className="tag official">Oficial</span> : <span className="tag">Casual</span>}
+        <NoCdTag on={room.settings.cooldowns === 'none' && room.settings.mode !== 'classic'} />
         <span className="grow" />
         {onClose && <button className="mini" onClick={onClose}>Volver al partido (Esc)</button>}
       </h1>
@@ -649,7 +673,8 @@ function RoomPanel({ room, prefs, setPrefs, onClose }: { room: RoomInfo; prefs: 
           {room.settings.mode === 'classic' && <p className="muted">Modo Clásico: sin poderes, física base.</p>}
         </div>
         <div className="room-right">
-          <SettingsFields s={room.settings} disabled={!isHost || room.playing} onChange={(s) => n.send({ t: 'settings', settings: s })} />
+          <SettingsFields s={room.settings} disabled={!isHost} playing={room.playing} onChange={(s) => n.send({ t: 'settings', settings: s })} />
+          {room.playing && isHost && room.settings.mode !== 'classic' && <p className="muted small">Con el partido en curso sólo se puede cambiar Cooldowns: se aplica al reiniciar (Revancha) y se avisa a todos.</p>}
           {!isHost && <p className="muted small">Sólo el anfitrión cambia la configuración e inicia el partido.</p>}
           {n.isBrowserHost && <p className="muted small">La sala corre en tu navegador: si cerrás esta pestaña, termina para todos. Dejala visible mientras se juega.</p>}
           {isHost && (
@@ -746,7 +771,7 @@ function OfflineGame({ prefs, setPrefs, nick, opts, onExit }: { prefs: Prefs; se
       prefs={prefs}
       menuOpen={menu || ended}
       onToggleMenu={() => setMenu((v) => !v)}
-      status={<span className="muted">{opts.kind === 'training' ? 'Entrenamiento' : 'Contra bots'} · {MODE_LABEL[opts.mode]} · sin recompensas</span>}
+      status={<><NoCdTag on={!!opts.noCooldowns} /><span className="muted">{opts.kind === 'training' ? 'Entrenamiento' : 'Contra bots'} · {MODE_LABEL[opts.mode]} · sin recompensas</span></>}
       extraKeys={(e) => {
         if (e.code === 'KeyR' && opts.kind === 'training') session.resetPositions();
       }}

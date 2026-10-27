@@ -26,9 +26,9 @@ function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
 
-function lerpDisc(out: Disc, a: Disc, b: Disc, t: number): void {
-  // sin interpolar teletransportes (saque)
-  if (Math.abs(a.x - b.x) + Math.abs(a.y - b.y) > 80) return;
+function lerpDisc(out: Disc, a: Disc, b: Disc, t: number, jumped = false): void {
+  // sin interpolar saltos: saque, portal o rebobinado (eventos de discontinuidad)
+  if (jumped || Math.abs(a.x - b.x) + Math.abs(a.y - b.y) > 80) return;
   out.x = lerp(a.x, b.x, t);
   out.y = lerp(a.y, b.y, t);
 }
@@ -36,10 +36,10 @@ function lerpDisc(out: Disc, a: Disc, b: Disc, t: number): void {
 /** Crea una vista con posiciones interpoladas entre dos estados. */
 function blend(a: GameState, b: GameState, t: number): GameState {
   const v: GameState = { ...b, ball: { ...b.ball }, players: b.players.map((p) => ({ ...p, d: { ...p.d } })) };
-  lerpDisc(v.ball, a.ball, b.ball, t);
+  lerpDisc(v.ball, a.ball, b.ball, t, a.ballWarp !== b.ballWarp);
   for (const p of v.players) {
     const pa = a.players.find((o) => o.id === p.id);
-    if (pa) lerpDisc(p.d, pa.d, p.d, t);
+    if (pa) lerpDisc(p.d, pa.d, p.d, t, pa.warp !== p.warp);
   }
   v.projectiles = b.projectiles.map((pr) => {
     const pa = a.projectiles.find((o) => o.id === pr.id);
@@ -58,6 +58,8 @@ export interface LocalOptions {
   timeLimitMin: number;
   scoreLimit: number;
   botSkill: number;
+  /** «Sin cooldowns» (Héroes y Súper). */
+  noCooldowns?: boolean;
 }
 
 export class LocalSession implements Session {
@@ -96,6 +98,7 @@ export class LocalSession implements Session {
       timeLimitMin: o.kind === 'training' ? 0 : o.timeLimitMin,
       scoreLimit: o.kind === 'training' ? 0 : o.scoreLimit,
       players,
+      noCooldowns: o.noCooldowns,
     });
     if (o.kind === 'training') s.phase = 'playing';
     return s;
@@ -164,12 +167,12 @@ interface Snap {
 const INTERP_TICKS = 6; // 100 ms de colchón para interpolar
 const MAX_PENDING = 120;
 
-/** Posiciones de todos los discos (pelota + jugadores) por id. */
-type PosMap = Map<string, { x: number; y: number }>;
+/** Posiciones de todos los discos (pelota + jugadores) por id, con su contador de saltos. */
+type PosMap = Map<string, { x: number; y: number; w: number }>;
 
 function positions(s: GameState): PosMap {
-  const m: PosMap = new Map([['ball', { x: s.ball.x, y: s.ball.y }]]);
-  for (const p of s.players) m.set(p.id, { x: p.d.x, y: p.d.y });
+  const m: PosMap = new Map([['ball', { x: s.ball.x, y: s.ball.y, w: s.ballWarp }]]);
+  for (const p of s.players) m.set(p.id, { x: p.d.x, y: p.d.y, w: p.warp });
   return m;
 }
 
@@ -255,7 +258,7 @@ export class NetSession implements Session, SnapshotSink {
       const dx = o.x - now.x;
       const dy = o.y - now.y;
       const cur = this.off.get(id) ?? { x: 0, y: 0 };
-      if (Math.hypot(dx, dy) < 60) this.off.set(id, { x: cur.x + dx, y: cur.y + dy });
+      if (Math.hypot(dx, dy) < 60 && o.w === now.w) this.off.set(id, { x: cur.x + dx, y: cur.y + dy });
       else this.off.delete(id); // saque o teletransporte: sin suavizar
     }
   }
@@ -322,12 +325,12 @@ export class NetSession implements Session, SnapshotSink {
     const s = this.predicted!;
     const t = this.acc / TICK_MS;
     this.clampOffsets(s);
-    const place = (id: string, d: { x: number; y: number }) => {
+    const place = (id: string, d: { x: number; y: number }, w: number) => {
       const a = this.predPrev.get(id);
       const o = this.off.get(id);
       let x = d.x;
       let y = d.y;
-      if (a && Math.abs(a.x - d.x) + Math.abs(a.y - d.y) < 80) {
+      if (a && a.w === w && Math.abs(a.x - d.x) + Math.abs(a.y - d.y) < 80) {
         x = lerp(a.x, d.x, t);
         y = lerp(a.y, d.y, t);
       }
@@ -339,8 +342,8 @@ export class NetSession implements Session, SnapshotSink {
     };
     return {
       ...s,
-      ball: place('ball', s.ball),
-      players: s.players.map((p) => ({ ...p, d: place(p.id, p.d) })),
+      ball: place('ball', s.ball, s.ballWarp),
+      players: s.players.map((p) => ({ ...p, d: place(p.id, p.d, p.warp) })),
     };
   }
 

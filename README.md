@@ -188,14 +188,25 @@ Capturas reales tomadas del servidor local con PostgreSQL embebido y cuentas de 
 | Menú / sala | Esc | botón Menú |
 | Volver al centro (entrenamiento) | R | menú |
 
-Debajo de cada poder el HUD muestra su nombre y su estado en texto: *Listo*, *Activo*, *Recargando* (con segundos)
-o *En pausa*.
+Debajo de cada poder el HUD muestra su nombre y su estado en texto: *Listo*, *Activo*, *Recargando* (con segundos),
+*Aturdido* o *En pausa* (sin cooldowns: *LISTO* / *ACTIVA*).
 
 ## Modos
 
 - **Héroes**: dos poderes (Q y E) con recarga. Puede ser oficial.
 - **Súper**: mismos héroes con poderes potenciados (`SUPER_POWERS` en `shared/config.ts`). Sólo casual.
 - **Clásico**: sin poderes. Puede ser oficial.
+
+**Cooldowns: Normales / Sin cooldowns** (Héroes y Súper). Se elige al crear la sala, en la configuración de la sala
+(anfitrión), en entrenamiento y contra bots; en Clásico está deshabilitado con su explicación. Sin cooldowns los
+poderes no esperan recarga pero conservan sus duraciones y anticipaciones; mantener la tecla no repite y un poder no
+se reactiva mientras dure su propio efecto. El HUD muestra *LISTO* o *ACTIVA* sin números. Lo valida la
+simulación (no el cliente), hay topes de proyectiles, zonas y eventos, y la sala y el partido muestran la etiqueta
+«Sin cooldowns». Siempre es casual: no puede marcarse como oficial y el servidor rechaza recompensas
+(`evaluateMatch`). Cambiarlo con el partido en curso se avisa a todos y se aplica al reiniciar (Revancha).
+
+**Efectos visuales**: en Ajustes, *Efectos: Completos / Reducidos* (también se respeta `prefers-reduced-motion`).
+Reducidos quita partículas decorativas y conserva las señales esenciales (avisos, áreas reales, aturdimientos).
 
 Entrenamiento (sin rival ni límite) y partidos contra bots (1v1 a 3v3, bots con cualquiera de los 12 héroes)
 funcionan sin conexión y no dan recompensas. Todos los héroes se pueden usar en entrenamiento, bots y salas casuales;
@@ -211,20 +222,36 @@ frecuencia en cofres, no el poder. Tabla generada desde `shared/config.ts` con `
 | Spider-Man | Común (inicial) · Control | **Telaraña**: Apunta sola a la pelota y la atrae (8R). CD 7 s | **Impulso arácnido**: Desplazamiento rápido 0,25 s. CD 6 s |
 | Batman | Común (inicial) · Control | **Batarang**: Apunta solo al objetivo más alineado: empuja la pelota o frena a un rival (9R). CD 6 s | **Gancho**: Se engancha a la pelota y te lleva hacia ella (10R). CD 7 s |
 | Hulk | Común (inicial) · Defensa | **Golpe al suelo**: Onda 4R que empuja pelota y rivales. CD 8 s | **Furia**: Más masa y patada +35 % durante 2 s. CD 12 s |
-| Superman | Común (inicial) · Ataque | **Súper disparo**: Próxima patada +50 % (2 s). CD 8 s | **Súper velocidad**: +40 % aceleración y velocidad 1,2 s. CD 10 s |
-| Hawkeye | Común · Ataque | **Flecha de precisión**: Flecha recta (10R) que apunta sola a la pelota y la empuja. La frena cualquier jugador. CD 7 s | **Paso lateral**: Desplazamiento de hasta 2,5R hacia donde apuntás, chocando normalmente. CD 8 s |
-| Black Widow | Común · Control | **Descarga**: Proyectil (6R) que apunta solo al rival más alineado: el primer rival alcanzado acelera 20 % menos durante 0,7 s. CD 8 s | **Evasión**: Durante 0,6 s recibís 50 % menos de empuje de poderes. Seguís chocando. CD 10 s |
-| Capitán América | Raro · Defensa | **Escudo**: Lanza el escudo (8R), que apunta solo a la pelota o a un rival: un solo impacto a la pelota y vuelve sin volver a golpear. CD 8 s | **Guardia**: Durante 1 s resistís 60 % de los empujes de poderes, con 25 % menos aceleración. CD 10 s |
+| Superman | Común (inicial) · Ataque | **Visión láser**: Tras 0,15 s de aviso, rayo recto (12R) hacia donde te movés: empuja al primer objetivo (pelota o rival). Paredes y postes lo bloquean. CD 8 s | **Súper velocidad**: +40 % aceleración y velocidad durante 1,2 s. CD 10 s |
+| Hawkeye | Común · Ataque | **Flecha explosiva**: Flecha (12R) que apunta sola a la pelota y explota al tocar algo: onda de 3R que empuja pelota y jugadores de ambos equipos (también a vos), más fuerte cerca del centro. CD 8 s | **Paso lateral**: Desplazamiento de hasta 2,5R hacia donde apuntás, chocando normalmente. CD 8 s |
+| Black Widow | Común · Control | **Descarga**: Proyectil (6R) que apunta solo al rival más alineado: el primer rival alcanzado acelera 20 % menos durante 0,7 s. CD 8 s | **Dash evasivo**: Desplazamiento rápido (×2,2 velocidad, 0,22 s) hacia donde apuntás, chocando con todo. CD 6 s |
+| Capitán América | Raro · Defensa | **Escudo encadenado**: Escudo grande que apunta solo y rebota entre la pelota y rivales cercanos (5R): hasta 3 impactos, uno por objetivo. Nunca rebota hacia aliados. CD 9 s | **Protección de la pelota**: Pelota a menos de 10R: durante 2 s ningún poder puede modificarla (sí patadas y choques). CD 12 s |
 | Black Panther | Raro · Movilidad | **Salto felino**: Avance de hasta 4R hacia donde apuntás; se detiene ante jugadores, pelota u obstáculos. CD 8 s | **Pulso cinético**: Tras 0,3 s de aviso empuja a los rivales a 3R y un poco la pelota. CD 10 s |
-| Iron Man | Épico · Ataque | **Repulsor**: Disparo recto (10R) que impulsa la pelota en la dirección del disparo. Apunta solo a la pelota. CD 8 s | **Propulsores**: +30 % aceleración y velocidad máxima durante 0,9 s, girando peor. CD 10 s |
-| Flash | Épico · Movilidad | **Carrera relámpago**: +50 % aceleración y +35 % velocidad máxima durante 0,7 s. CD 8 s | **Estela**: Deja una estela (1,2 s) que reduce 15 % la aceleración rival; dura hasta 0,5 s tras salir. CD 11 s |
-| Thor | Legendario · Defensa | **Mjolnir**: Martillo (8R) que apunta solo y empuja la pelota o al primer rival alcanzado. CD 9 s | **Trueno**: Marca una zona de 3R delante durante 0,5 s; luego empuja todo lo que siga dentro. CD 12 s |
-| Doctor Strange | Legendario · Control | **Desvío arcano**: Portal hasta 6R delante: durante 1 s desvía la pelota una vez hasta 30° hacia la flecha, sin acelerarla. CD 10 s | **Paso místico**: Teletransporte de hasta 3R con recorrido libre; no atraviesa paredes, jugadores ni pelota. CD 12 s |
+| Iron Man | Épico · Ataque | **Repulsor**: Carga 0,12 s y dispara un pulso (12R) que apunta solo: un impacto fuerte a la pelota o empuje a un rival. CD 7 s | **Misil**: Pelota a menos de 14R: marca dónde está y a los 0,65 s cae un misil (2,5R). Si la pelota sigue ahí, sale en una dirección al azar. No afecta jugadores. CD 11 s |
+| Flash | Épico · Movilidad | **Velocidad extrema**: Durante 2 s: aceleración ×2 y velocidad máxima ×1,9. CD 10 s | **Estela acelerada**: Durante 1,5 s acelerás ×1,5 y dejás una estela (1,2 s) que frena 30 % a los rivales que la pisan. No se suma con Q: vale la mejor. CD 11 s |
+| Thor | Legendario · Defensa | **Mjolnir electrificado**: Martillo grande (10R) que apunta solo: un impacto fuerte. Si golpea la pelota la electrifica 1,5 s: quien la toque queda aturdido 0,35 s (también vos). CD 10 s | **Rayo paralizante**: Marca al rival más cercano delante tuyo (10R); a los 0,4 s cae un rayo (1,3R) que aturde 0,55 s a los rivales que sigan ahí. Sin objetivo no gasta la recarga. CD 12 s |
+| Doctor Strange | Legendario · Control | **Rebobinar**: Pelota a menos de 12R: vuelve a la posición y velocidad de hace 1,5 s (sólo de esta jugada). No cambia jugadores, marcador ni reloj. CD 12 s | **Portal al arco**: Tras 0,35 s de canalización aparecés delante del arco de la mitad donde estás. Un aturdimiento lo interrumpe. CD 14 s |
 
-Balance medido con bots (`tests/balance.test.ts`, 1v1 contra cada inicial): todos los nuevos quedan entre 35 % y
-50 % de los goles. Reglas comunes: los poderes se activan por flanco, no funcionan en saque, pausa, celebración ni
-como espectador; las ralentizaciones y resistencias no se suman (vale la más fuerte); al marcar se limpian
-proyectiles, zonas y efectos.
+Balance medido con bots (`tests/balance.test.ts`, 1v1 contra cada inicial): todos los nuevos quedan entre 40 % y
+60 % de los goles. Todos los valores (alcances en R, impulsos en K = patada normal, tiempos en segundos) están
+centralizados en `POWERS` y `SUPER_POWERS` de `shared/config.ts`; la tabla muestra los de Héroes.
+
+Reglas comunes:
+
+- Los poderes se activan por flanco (mantener la tecla no repite), no funcionan en saque, pausa, celebración ni
+  como espectador. Nada cambia radios físicos ni hay vida o daño.
+- **Aturdimiento**: bloquea moverse, patear y poderes; los choques y empujes siguen. No se apila y deja 0,8 s de
+  inmunidad. Una tecla mantenida durante el aturdimiento no se dispara al terminar.
+- **Protección del Capitán** (prioridad máxima): mientras dura, ningún poder modifica la pelota; los proyectiles
+  que la tocan se consumen, los efectos radiales siguen empujando jugadores. No deshace impactos anteriores ni se
+  suma con otra protección. Quita la electricidad y la atracción activas sin cambiar posición ni velocidad.
+- Ralentizaciones: vale la más fuerte. Velocidad de Flash: Q y E no se multiplican, vale la mayor.
+- Cada proyectil, haz o explosión golpea a cada objetivo una sola vez; orden de resolución determinista
+  (jugadores en orden, luego proyectiles, hilos y zonas por creación).
+- La dirección del misil la sortea la simulación autoritativa con el generador del estado: la reconciliación del
+  cliente no la vuelve a sortear. Portal y rebobinado son saltos (no se interpolan como recorrido).
+- Gol, reinicio y fin limpian proyectiles, zonas, aturdimientos, electricidad, protección, portales e historial de
+  la pelota. Si un jugador se va, se quitan sus proyectiles, zonas y su protección.
 
 ## Arquitectura
 
@@ -267,6 +294,11 @@ dibuja radios, alcance de patada y posiciones de red.
 
 ## Cambios (ordenados por importancia)
 
+0. **Remodelación de habilidades** (sin tocar Spider-Man ni Batman): láser de Superman, flecha explosiva, dash de
+   Black Widow, escudo encadenado y protección de la pelota del Capitán, repulsor y misil de Iron Man, Flash más
+   rápido con estela que acelera y frena de verdad, Mjolnir electrificado y rayo paralizante de Thor, rebobinar y
+   portal al arco de Doctor Strange; aturdimiento con inmunidad, opción «Sin cooldowns», efectos reducidos y
+   visuales nuevos con áreas iguales a las reales.
 1. **Contacto con la pelota**: corrección medida de la hitbox y del alcance de patada, con capa de depuración.
 2. **Cuentas recuperables** (Better Auth) con persistencia en PostgreSQL; el invitado sigue pudiendo jugar.
 3. **Economía en el servidor**: HeroCoins, Fragmentos, cofres con probabilidades publicadas y garantías,
@@ -285,12 +317,17 @@ dibuja radios, alcance de patada y posiciones de red.
 ## Pruebas
 
 ```bash
-npm test          # 156 pruebas (incluye PostgreSQL embebido real en tests/db.test.ts)
+npm test          # 210 pruebas (incluye PostgreSQL embebido real en tests/db.test.ts)
 npm run typecheck
 ```
 
-Última ejecución: 12 archivos, 156 pruebas, todas pasan. Cubren física y poderes (incluidos los 8 héroes nuevos y
-su balance), protocolo y salas, y contra PostgreSQL real: registro y bienvenida única, recuperación de cuenta en otro
+Última ejecución: 13 archivos, 210 pruebas, todas pasan. `tests/rework.test.ts` cubre cada habilidad remodelada en
+Héroes y Súper (impulso efectivo igual al configurado, radio y ancho reales), dash y carrera sin atravesar, escudo
+sin bucles y con elección determinista, protección contra todos los poderes, misil con sorteo único y el mismo
+resultado en dos clientes en red, electricidad una vez por jugador, aturdimiento e inmunidad, rebobinar (inicio,
+cerca del arco, después de un gol, lugar ocupado), portal (ambas mitades, línea central, destino bloqueado),
+«Sin cooldowns» (pulsaciones rápidas, tecla mantenida, topes, sala, sin recompensas), limpieza y espectadores.
+El resto cubre física y poderes (incluido el balance), protocolo y salas, y contra PostgreSQL real: registro y bienvenida única, recuperación de cuenta en otro
 navegador y restablecimiento de contraseña, persistencia tras reiniciar, compras y aperturas concurrentes y con
 doble clic, fallo de red después de abrir, saldo insuficiente y sin cofres, ambas garantías y su prioridad,
 duplicados y desbloqueo por Fragmentos, objetivos y tope diario, rivales repetidos, resultados P2P falsificados

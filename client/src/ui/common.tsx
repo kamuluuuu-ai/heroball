@@ -125,6 +125,13 @@ export function SettingsPanel({ prefs, setPrefs }: { prefs: Prefs; setPrefs: (p:
           <option value="off">Nunca</option>
         </select>
       </label>
+      <label className="row" title="Reducidos: sin partículas, destellos ni giros; las zonas, avisos y haces siguen visibles. También se activa si el sistema pide menos movimiento.">
+        Efectos
+        <select value={prefs.effects} onChange={(e) => setPrefs({ ...prefs, effects: e.target.value as Prefs['effects'] })}>
+          <option value="full">Completos</option>
+          <option value="reduced">Reducidos</option>
+        </select>
+      </label>
       <label className="row" title="Muestra radios físicos, alcance de patada, separación entre bordes y posiciones de red">
         <input type="checkbox" checked={prefs.debug} onChange={(e) => setPrefs({ ...prefs, debug: e.target.checked })} /> Depuración de contacto
       </label>

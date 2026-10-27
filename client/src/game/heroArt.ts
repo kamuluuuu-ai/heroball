@@ -389,34 +389,47 @@ export function drawPowerIcon(c: Ctx, hero: HeroId, slot: 'q' | 'e', s: number):
       c.fillRect(-r * 0.6, -r * 0.5, r * 1.2, r);
       c.fillRect(-r * 0.6, r * 0.5, r * 0.7, r * 0.45);
       break;
-    case 'superman-q': // disparo
-      circle(c, -r * 0.35, r * 0.2, r * 0.4);
+    case 'superman-q': // visión láser: dos haces desde los ojos
+      circle(c, -r * 0.55, -r * 0.1, r * 0.22);
       c.fill();
-      c.beginPath();
-      c.moveTo(0, -r * 0.1);
-      c.lineTo(r, -r * 0.8);
-      c.stroke();
-      c.beginPath();
-      c.moveTo(r * 0.1, r * 0.25);
-      c.lineTo(r, -r * 0.3);
-      c.stroke();
-      break;
-    case 'hawkeye-q': // flecha
-    case 'ironman-q': // repulsor (flecha con anillo)
-      c.beginPath();
-      c.moveTo(-r, r * 0.6);
-      c.lineTo(r * 0.6, -r * 0.6);
-      c.stroke();
-      c.beginPath();
-      c.moveTo(r, -r);
-      c.lineTo(r * 0.25, -r * 0.8);
-      c.lineTo(r * 0.8, -r * 0.25);
-      c.closePath();
-      c.fill();
-      if (key === 'ironman-q') {
-        circle(c, -r * 0.45, r * 0.2, r * 0.35);
+      c.save();
+      c.strokeStyle = '#FF5A4A';
+      for (const o of [-0.25, 0.15]) {
+        c.beginPath();
+        c.moveTo(-r * 0.3, o * r);
+        c.lineTo(r, (o - 0.35) * r);
         c.stroke();
       }
+      c.restore();
+      break;
+    case 'hawkeye-q': // flecha explosiva
+      c.beginPath();
+      c.moveTo(-r, r * 0.6);
+      c.lineTo(r * 0.2, -r * 0.2);
+      c.stroke();
+      c.save();
+      c.fillStyle = '#FF9A3C';
+      circle(c, r * 0.45, -r * 0.45, r * 0.42);
+      c.fill();
+      c.restore();
+      for (let i = 0; i < 6; i++) {
+        const a = (i * Math.PI) / 3;
+        c.beginPath();
+        c.moveTo(r * 0.45 + Math.cos(a) * r * 0.5, -r * 0.45 + Math.sin(a) * r * 0.5);
+        c.lineTo(r * 0.45 + Math.cos(a) * r * 0.75, -r * 0.45 + Math.sin(a) * r * 0.75);
+        c.stroke();
+      }
+      break;
+    case 'ironman-q': // repulsor: pulso con anillo
+      circle(c, 0, 0, r * 0.35);
+      c.fill();
+      circle(c, 0, 0, r * 0.7);
+      c.stroke();
+      c.save();
+      c.strokeStyle = '#3FD8FF';
+      circle(c, 0, 0, r);
+      c.stroke();
+      c.restore();
       break;
     case 'hawkeye-e': // paso lateral
     case 'panther-q': // salto
@@ -430,43 +443,49 @@ export function drawPowerIcon(c: Ctx, hero: HeroId, slot: 'q' | 'e', s: number):
       c.fill();
       break;
     case 'widow-q': // descarga
-    case 'thor-e': // trueno
+    case 'thor-e': // rayo paralizante
       bolt(c, r);
       c.fill();
       if (key === 'thor-e') {
         circle(c, 0, 0, r);
         c.setLineDash([s * 0.05, s * 0.05]);
         c.stroke();
+        c.setLineDash([]);
       }
       break;
-    case 'widow-e': // evasión: silueta con estelas
-    case 'cap-e': // guardia: escudo
-      if (key === 'cap-e') {
-        c.beginPath();
-        c.moveTo(0, -r);
-        c.lineTo(r * 0.8, -r * 0.6);
-        c.lineTo(r * 0.6, r * 0.4);
-        c.lineTo(0, r);
-        c.lineTo(-r * 0.6, r * 0.4);
-        c.lineTo(-r * 0.8, -r * 0.6);
-        c.closePath();
-        c.stroke();
-      } else {
-        circle(c, r * 0.3, 0, r * 0.45);
-        c.fill();
-        for (const o of [-0.35, 0.35]) {
-          c.beginPath();
-          c.moveTo(-r, o * r);
-          c.lineTo(-r * 0.3, o * r);
-          c.stroke();
-        }
-      }
-      break;
-    case 'cap-q': // escudo lanzado
-      circle(c, 0, 0, r * 0.8);
-      c.stroke();
-      circle(c, 0, 0, r * 0.4);
+    case 'widow-e': // dash evasivo: silueta con contornos residuales
+      circle(c, r * 0.45, 0, r * 0.45);
       c.fill();
+      c.save();
+      c.strokeStyle = '#E03844';
+      c.lineWidth = s * 0.05;
+      for (const [x, k] of [[-0.15, 0.4], [-0.65, 0.32]] as const) {
+        circle(c, x * r, 0, k * r);
+        c.stroke();
+      }
+      c.restore();
+      break;
+    case 'cap-q': // escudo encadenado: escudo con rebotes
+      circle(c, -r * 0.3, r * 0.2, r * 0.6);
+      c.stroke();
+      circle(c, -r * 0.3, r * 0.2, r * 0.25);
+      c.fill();
+      c.setLineDash([s * 0.05, s * 0.05]);
+      c.beginPath();
+      c.moveTo(r * 0.3, -r * 0.1);
+      c.lineTo(r * 0.75, -r * 0.75);
+      c.lineTo(r, -r * 0.1);
+      c.stroke();
+      c.setLineDash([]);
+      break;
+    case 'cap-e': // protección de la pelota: burbuja con pelota y estrella
+      circle(c, 0, 0, r * 0.5);
+      c.fill();
+      c.save();
+      c.strokeStyle = '#7FB2FF';
+      circle(c, 0, 0, r * 0.85);
+      c.stroke();
+      c.restore();
       break;
     case 'panther-e': // pulso
       circle(c, 0, 0, r * 0.25);
@@ -478,52 +497,71 @@ export function drawPowerIcon(c: Ctx, hero: HeroId, slot: 'q' | 'e', s: number):
       c.stroke();
       c.setLineDash([]);
       break;
-    case 'ironman-e': // propulsores
-    case 'flash-q': // carrera
+    case 'ironman-e': // misil sobre una retícula
+      c.save();
+      c.strokeStyle = '#FF5A4A';
+      circle(c, 0, r * 0.35, r * 0.55);
+      c.stroke();
+      c.restore();
+      c.fillRect(-r * 0.15, -r, r * 0.3, r * 0.95);
+      c.beginPath();
+      c.moveTo(-r * 0.15, -r * 0.05);
+      c.lineTo(0, r * 0.25);
+      c.lineTo(r * 0.15, -r * 0.05);
+      c.closePath();
+      c.fill();
+      break;
+    case 'flash-q': // velocidad extrema
       for (const o of [-0.45, 0, 0.45]) {
         c.beginPath();
         c.moveTo(-r, o * r);
         c.lineTo(r * 0.1, o * r);
         c.stroke();
       }
-      if (key === 'flash-q') {
-        bolt(c, r * 0.6);
-        c.translate(r * 0.45, 0);
-        c.fill();
-      } else {
-        c.beginPath();
-        c.moveTo(r * 0.2, -r * 0.6);
-        c.lineTo(r, 0);
-        c.lineTo(r * 0.2, r * 0.6);
-        c.closePath();
-        c.fill();
-      }
+      bolt(c, r * 0.6);
+      c.translate(r * 0.45, 0);
+      c.fill();
       break;
-    case 'flash-e': // estela
+    case 'flash-e': // estela acelerada (naranja)
+      c.save();
+      c.fillStyle = '#FF9A3C';
       for (const [x, k] of [[-0.6, 0.18], [-0.1, 0.26], [0.45, 0.34]] as const) {
         circle(c, x * r, 0, k * r);
         c.fill();
       }
+      c.restore();
       break;
-    case 'thor-q': // martillo
-      c.fillRect(-r * 0.7, -r * 0.7, r * 1.1, r * 0.55);
+    case 'thor-q': // Mjolnir electrificado
+      c.fillRect(-r * 0.75, -r * 0.75, r * 1.2, r * 0.6);
       c.save();
       c.rotate(-Math.PI / 4);
       c.fillRect(-r * 0.1, -r * 0.1, r * 0.2, r * 1.2);
       c.restore();
-      break;
-    case 'strange-q': // desvío: arco con flecha
+      c.save();
+      c.strokeStyle = '#8CC8FF';
+      c.lineWidth = s * 0.045;
       c.beginPath();
-      c.arc(0, r * 0.6, r * 1.1, -Math.PI * 0.85, -Math.PI * 0.35);
+      c.moveTo(r * 0.55, -r * 0.9);
+      c.lineTo(r * 0.85, -r * 0.55);
+      c.lineTo(r * 0.6, -r * 0.4);
+      c.lineTo(r * 0.95, -r * 0.05);
+      c.stroke();
+      c.restore();
+      break;
+    case 'strange-q': // rebobinar: flecha circular hacia atrás
+      c.beginPath();
+      c.arc(0, 0, r * 0.75, -Math.PI * 0.2, Math.PI * 1.35);
       c.stroke();
       c.beginPath();
-      c.moveTo(r * 0.75, -r * 0.55);
-      c.lineTo(r * 0.25, -r * 0.55);
-      c.lineTo(r * 0.6, -r * 0.1);
+      c.moveTo(r * 0.55, -r * 0.85);
+      c.lineTo(r * 0.75, -r * 0.3);
+      c.lineTo(r * 0.2, -r * 0.4);
       c.closePath();
       c.fill();
+      circle(c, 0, 0, r * 0.18);
+      c.fill();
       break;
-    case 'strange-e': // paso místico: dos portales
+    case 'strange-e': // portal al arco: dos portales
       for (const x of [-0.5, 0.5]) {
         c.beginPath();
         c.ellipse(x * r, 0, r * 0.3, r * 0.7, 0, 0, Math.PI * 2);

@@ -1,7 +1,7 @@
 // Reglas del partido: saque, goles, tiempo, gol de oro, patadas y entradas.
 import { HeroId, KICK, LIMITS, PLAYER, RULES, STADIUM, TICK_RATE, powersFor } from './config';
 import { clampSpeed, makeDisc, Seg, stadium, stepWorld } from './physics';
-import { accelMult, activate, applyDash, applyRush, clearEffects, kickMult, speedLimitMult, turnMult, updatePowers } from './powers';
+import { accelMult, activate, applyDash, applyRush, clearEffects, kickMult, speedLimitMult, updatePowers } from './powers';
 import { GameMode, GameState, IN, PlayerState, Team } from './types';
 
 export interface GameOptions {
@@ -9,6 +9,10 @@ export interface GameOptions {
   timeLimitMin: number;
   scoreLimit: number;
   players: { id: string; team: Team; hero: HeroId }[];
+  /** «Sin cooldowns» (sólo Héroes y Súper; en Clásico no hay poderes). */
+  noCooldowns?: boolean;
+  /** Semilla del generador de la autoridad (por defecto, al azar). */
+  seed?: number;
 }
 
 export function teamDir(t: Team): 1 | -1 {
@@ -37,6 +41,16 @@ export function createGame(o: GameOptions): GameState {
     nextId: 1,
     lastTouch: null,
     events: [],
+    noCd: !!o.noCooldowns && o.mode !== 'classic',
+    rng: (o.seed ?? Math.floor(Math.random() * 2 ** 32)) >>> 0,
+    ballShield: 0,
+    ballShieldMax: 0,
+    ballShieldBy: null,
+    ballElec: 0,
+    ballElecStun: 0,
+    ballElecHit: [],
+    ballHist: [],
+    ballWarp: 0,
   };
   for (const p of o.players) addPlayer(s, p.id, p.team, p.hero);
   resetKickoff(s, 'red');
@@ -51,10 +65,13 @@ function newPlayer(id: string, team: Team, hero: HeroId): PlayerState {
     kickArmed: false, kickCd: 0, kickHeldTicks: 0,
     ax: teamDir(team), ay: 0,
     cdQ: 0, cdE: 0,
-    dash: 0, fury: 0, superShot: 0, superSpeed: 0,
-    slowPct: 0, slowTicks: 0, slowNow: 0,
+    dash: 0, fury: 0, superSpeed: 0,
+    slowPct: 0, slowTicks: 0, capSlow: 0, capSlowTicks: 0, slowNow: 0,
+    stun: 0, stunImmune: 0,
     rush: 0, rushSpeed: 0, rushDx: 0, rushDy: 0,
-    evade: 0, guard: 0, thrusters: 0, sprint: 0,
+    evade: 0, evadeResist: 0, sprint: 0, trailBoost: 0,
+    half: team === 'red' ? -1 : 1,
+    warp: 0,
   };
 }
 
@@ -72,6 +89,7 @@ export function addPlayer(s: GameState, id: string, team: Team, hero: HeroId): P
   const [x, y] = spawnPos(team, idx);
   p.d.x = x;
   p.d.y = y;
+  p.half = x < 0 ? -1 : 1;
   s.players.push(p);
   return p;
 }
@@ -81,6 +99,13 @@ export function removePlayer(s: GameState, id: string): void {
   s.projectiles = s.projectiles.filter((p) => p.owner !== id);
   s.tethers = s.tethers.filter((t) => t.owner !== id && t.target !== id);
   s.zones = s.zones.filter((z) => z.owner !== id);
+  // su protección de la pelota termina con él; la electricidad ya aplicada sigue
+  if (s.ballShieldBy === id) {
+    s.ballShield = 0;
+    s.ballShieldMax = 0;
+    s.ballShieldBy = null;
+  }
+  s.ballElecHit = s.ballElecHit.filter((h) => h !== id);
   if (s.lastTouch === id) s.lastTouch = null;
 }
 
@@ -99,6 +124,7 @@ export function resetKickoff(s: GameState, team: Team): void {
   s.phaseTicks = 0;
   s.kickoffTeam = team;
   s.ball = makeDisc(0, 0, 'ball');
+  s.ballWarp++;
   clearEffects(s);
   const counts = { red: 0, blue: 0 };
   for (const p of s.players) {
@@ -108,6 +134,8 @@ export function resetKickoff(s: GameState, team: Team): void {
     }
     const [x, y] = spawnPos(p.team, counts[p.team]++);
     p.d = makeDisc(x, y, 'player');
+    p.half = x < 0 ? -1 : 1;
+    p.warp++;
     p.ax = teamDir(p.team);
     p.ay = 0;
     p.kickArmed = false;
@@ -142,9 +170,13 @@ function kickoffBarriers(s: GameState): Seg[] {
 }
 
 function updatePlayer(s: GameState, p: PlayerState): void {
-  const bits = p.input;
-  const pressed = bits & ~p.prevInput;
+  // aturdido: sin movimiento voluntario, patada ni poderes (las entradas se
+  // siguen registrando, así una tecla mantenida no se dispara al terminar)
+  const stunned = p.stun > 0;
+  const bits = stunned ? 0 : p.input;
+  const pressed = stunned ? 0 : bits & ~p.prevInput;
   const held = (bits & IN.KICK) !== 0;
+  if (p.d.x !== 0) p.half = p.d.x < 0 ? -1 : 1;
 
   // patada: se arma al apretar; mantener no repite salvo holdRepeatTicks > 0
   if (held) {
@@ -189,22 +221,13 @@ function updatePlayer(s: GameState, p: PlayerState): void {
   } else {
     const a = (held ? PLAYER.kickingAcceleration : PLAYER.acceleration) * accelMult(s, p);
     const before = Math.hypot(p.d.vx, p.d.vy);
-    const turn = turnMult(s, p);
-    if (turn < 1 && before > 0.3) {
-      // menos control lateral: se atenúa la componente perpendicular a la velocidad
-      const ux = p.d.vx / before;
-      const uy = p.d.vy / before;
-      const along = dx * ux + dy * uy;
-      dx = ux * along + (dx - ux * along) * turn;
-      dy = uy * along + (dy - uy * along) * turn;
-    }
     p.d.vx += dx * a;
     p.d.vy += dy * a;
     // la propia aceleración no supera el límite configurado (los empujes externos sí)
     const lim = Math.max(before, LIMITS.playerInputSpeed * speedLimitMult(s, p));
     clampSpeed(p.d, lim);
   }
-  p.prevInput = bits;
+  p.prevInput = p.input;
 }
 
 function tryKick(s: GameState, p: PlayerState): void {
@@ -225,7 +248,6 @@ function tryKick(s: GameState, p: PlayerState): void {
   p.d.vy -= ny * PLAYER.kickback * p.d.invMass;
   p.kickArmed = false;
   p.kickCd = KICK.rateTicks;
-  p.superShot = 0;
   s.lastTouch = p.id;
   s.events.push({ type: 'kick', id: p.id, power: m });
 }

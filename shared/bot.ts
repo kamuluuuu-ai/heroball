@@ -2,6 +2,7 @@
 // no toca la física directamente.
 import { R, STADIUM, powersFor } from './config';
 import { hasPowers, teamDir } from './game';
+import { ballGuarded, boltTarget } from './powers';
 import { GameState, IN, PlayerState } from './types';
 
 export interface BotBrain {
@@ -113,6 +114,9 @@ export function botInput(s: GameState, brain: BotBrain, rnd: () => number = Math
     const useQ = (cond: boolean) => cond && me.cdQ === 0 && roll < chance && !(brain.lastBits & IN.Q);
     const useE = (cond: boolean) => cond && me.cdE === 0 && roll < chance && !(brain.lastBits & IN.E);
     const towardGoal = (b.x - me.d.x) * dir > 0;
+    // pelota en campo propio y cerca del arco propio: momento de despejar o defender
+    const ballOwnSide = (b.x - ownX) * dir < STADIUM.fieldW * 0.6;
+    const guarded = ballGuarded(s);
     switch (me.hero) {
       case 'spider':
         if (useQ(d < Math.min(P.spider.web.range * 0.9, 24 * R) && d > 4 * R)) bits |= IN.Q;
@@ -128,23 +132,25 @@ export function botInput(s: GameState, brain: BotBrain, rnd: () => number = Math
         else if (useE(d < 4 * R)) bits |= IN.E;
         break;
       case 'superman':
-        if (useQ(d < 3 * R && towardGoal)) bits |= IN.Q;
+        // láser en la última dirección de movimiento
+        if (useQ(!guarded && d < P.superman.laser.range * 0.85 && facing > 0.97 && towardGoal)) bits |= IN.Q;
         else if (useE(isAttacker && d > 8 * R)) bits |= IN.E;
         break;
       // héroes desbloqueables: tiros rectos sólo bien alineados y hacia el arco rival
       case 'hawkeye':
-        if (useQ(d < P.hawkeye.arrow.range * 0.85 && facing > 0.97 && towardGoal)) bits |= IN.Q;
+        if (useQ(!guarded && d < P.hawkeye.arrow.range * 0.85 && facing > 0.97 && towardGoal)) bits |= IN.Q;
         else if (useE(isAttacker && d > 3 * R && d < 7 * R && facing > 0.9)) bits |= IN.E;
         break;
       case 'widow': {
         const near = nearestRival(s, me);
         if (useQ(near !== null && near.d < P.widow.shock.range * 0.8 && near.align > 0.9)) bits |= IN.Q;
-        else if (useE(near !== null && near.d < 3 * R)) bits |= IN.E;
+        else if (useE(isAttacker && d > 4 * R && facing > 0.9)) bits |= IN.E; // dash hacia la pelota
         break;
       }
       case 'cap':
-        if (useQ(d < P.cap.shield.range * 0.8 && facing > 0.95 && towardGoal)) bits |= IN.Q;
-        else if (useE(!isAttacker && d < 5 * R)) bits |= IN.E;
+        if (useQ(!guarded && d < P.cap.shield.range * 0.8 && facing > 0.9 && towardGoal)) bits |= IN.Q;
+        // protege la pelota cuando está cerca del arco propio
+        else if (useE(!guarded && ballOwnSide && d < P.cap.protect.range * 0.8)) bits |= IN.E;
         break;
       case 'panther': {
         const near = nearestRival(s, me);
@@ -153,8 +159,9 @@ export function botInput(s: GameState, brain: BotBrain, rnd: () => number = Math
         break;
       }
       case 'ironman':
-        if (useQ(d < P.ironman.repulsor.range * 0.8 && facing > 0.97 && towardGoal)) bits |= IN.Q;
-        else if (useE(isAttacker && d > 6 * R && facing > 0.9)) bits |= IN.E;
+        if (useQ(!guarded && d < P.ironman.repulsor.range * 0.8 && facing > 0.97 && towardGoal)) bits |= IN.Q;
+        // misil: desordena una pelota peligrosa cerca del arco propio
+        else if (useE(!guarded && ballOwnSide && d > 4 * R && d < P.ironman.missile.range * 0.85)) bits |= IN.E;
         break;
       case 'flash':
         if (useQ(isAttacker && d > 6 * R && facing > 0.9)) bits |= IN.Q;
@@ -162,14 +169,15 @@ export function botInput(s: GameState, brain: BotBrain, rnd: () => number = Math
         break;
       case 'thor': {
         const near = nearestRival(s, me);
-        if (useQ(d < P.thor.hammer.range * 0.8 && facing > 0.95 && towardGoal)) bits |= IN.Q;
-        else if (useE(near !== null && near.d > 3 * R && near.d < 7 * R && near.align > 0.8)) bits |= IN.E;
+        if (useQ(!guarded && d < P.thor.hammer.range * 0.8 && facing > 0.95 && towardGoal)) bits |= IN.Q;
+        else if (useE(near !== null && near.d > 3 * R && boltTarget(s, me) !== null)) bits |= IN.E;
         break;
       }
       case 'strange':
-        // portal entre la pelota y el arco: la flecha apunta hacia donde se mueve el bot
-        if (useQ(d > 4 * R && d < 7 * R && facing > 0.9 && towardGoal)) bits |= IN.Q;
-        else if (useE(isAttacker && d > 4 * R && facing > 0.95)) bits |= IN.E;
+        // retroceso: devuelve una pelota que se acerca al arco propio
+        if (useQ(!guarded && ballOwnSide && d < P.strange.rewind.range * 0.85 && (b.vx * dir) < -2)) bits |= IN.Q;
+        // portal al arco de su mitad: volver a defender si está lejos de la pelota en campo propio
+        else if (useE(!isAttacker && me.half === -dir && ballOwnSide && d > 10 * R)) bits |= IN.E;
         break;
     }
   }

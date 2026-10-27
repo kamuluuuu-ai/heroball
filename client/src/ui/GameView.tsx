@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { TICK_RATE, heroInfo } from '../../../shared/config';
 import { clockText } from '../../../shared/game';
+import { powerActive } from '../../../shared/powers';
 import type { GameState } from '../../../shared/types';
 import { IN } from '../../../shared/types';
 import { drawPowerIcon } from '../game/heroArt';
@@ -8,6 +9,11 @@ import { InputState, joystickBits, typingInForm } from '../game/input';
 import { GameRunner } from '../game/runner';
 import type { Session } from '../game/sessions';
 import { isTouchDevice, type Prefs } from '../prefs';
+
+const motionQuery = typeof window !== 'undefined' ? window.matchMedia?.('(prefers-reduced-motion: reduce)') : undefined;
+function prefersReducedMotion(): boolean {
+  return motionQuery?.matches ?? false;
+}
 import { Chat, type ChatProps } from './Chat';
 
 interface Props {
@@ -50,7 +56,10 @@ export function GameView(p: Props) {
       canvasRef.current!,
       p.session,
       input,
-      () => ({ names: propsRef.current.names, zoom: propsRef.current.prefs.zoom, showNames: propsRef.current.prefs.showNames, debug: propsRef.current.prefs.debug }),
+      () => ({
+        names: propsRef.current.names, zoom: propsRef.current.prefs.zoom, showNames: propsRef.current.prefs.showNames, debug: propsRef.current.prefs.debug,
+        reducedFx: propsRef.current.prefs.effects === 'reduced' || prefersReducedMotion(),
+      }),
       (view) => hud.update(view, p.session.localId),
     );
     runnerRef.current = runner;
@@ -208,23 +217,25 @@ class HudWriter {
         sl.label.textContent = info[key].name;
       }
     }
-    const blocked = s.phase !== 'playing' || s.paused;
-    // efectos con duración: el poder está "activo" mientras duran
-    const rushQ = p.rush > 0 && p.hero === 'panther';
-    const rushE = p.rush > 0 && p.hero === 'hawkeye';
-    this.paint(this.q, p.cdQ, info.q.cooldown, blocked, p.superShot > 0 || p.sprint > 0 || rushQ);
-    this.paint(this.e!, p.cdE, info.e.cooldown, blocked, p.dash > 0 || p.fury > 0 || p.superSpeed > 0 || p.guard > 0 || p.evade > 0 || p.thrusters > 0 || rushE);
+    // aturdido también bloquea: no se puede activar nada
+    const blocked = s.phase !== 'playing' || s.paused || p.stun > 0;
+    // misma regla que la simulación: activo mientras dura su lanzamiento, canalización o efecto propio
+    this.paint(this.q, p.cdQ, info.q.cooldown, blocked, powerActive(s, p, 'q'), s.noCd, p.stun > 0);
+    this.paint(this.e!, p.cdE, info.e.cooldown, blocked, powerActive(s, p, 'e'), s.noCd, p.stun > 0);
   }
 
-  private paint(sl: NonNullable<typeof this.q>, cd: number, total: number, blocked: boolean, active: boolean) {
-    const txt = cd > 0 ? (cd / TICK_RATE).toFixed(cd < TICK_RATE * 3 ? 1 : 0) : '';
+  private paint(sl: NonNullable<typeof this.q>, cd: number, total: number, blocked: boolean, active: boolean, noCd: boolean, stunned: boolean) {
+    // sin cooldowns no hay números de recarga ficticios: sólo LISTO o ACTIVA
+    const txt = !noCd && cd > 0 ? (cd / TICK_RATE).toFixed(cd < TICK_RATE * 3 ? 1 : 0) : '';
     if (sl.cd.textContent !== txt) sl.cd.textContent = txt;
-    const h = `${Math.round((cd / total) * 100)}%`;
+    const h = noCd ? '0%' : `${Math.round((cd / total) * 100)}%`;
     if (sl.fill.style.height !== h) sl.fill.style.height = h;
-    sl.root.classList.toggle('ready', cd === 0 && !blocked);
+    sl.root.classList.toggle('ready', cd === 0 && !blocked && !active);
     sl.root.classList.toggle('blocked', blocked);
     sl.root.classList.toggle('active', active);
-    const state = active ? 'Activo' : blocked ? 'En pausa' : cd > 0 ? 'Recargando' : 'Listo';
+    const state = noCd
+      ? (active ? 'ACTIVA' : stunned ? 'Aturdido' : blocked ? 'En pausa' : 'LISTO')
+      : (active ? 'Activo' : stunned ? 'Aturdido' : blocked ? 'En pausa' : cd > 0 ? 'Recargando' : 'Listo');
     if (sl.state.textContent !== state) sl.state.textContent = state;
   }
 }

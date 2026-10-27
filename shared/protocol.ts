@@ -21,6 +21,13 @@ export interface RoomSettings {
    * cuenta, héroes de su colección, sin bots; el servidor resuelve recompensas.
    */
   official: boolean;
+  /**
+   * «none» = Sin cooldowns: sin espera de recarga (duraciones, anticipaciones y
+   * bloqueos de ejecución siguen). Siempre casual: nunca oficial ni con
+   * recompensas. Sin efecto en Clásico. Un cambio con el partido en curso se
+   * aplica al próximo reinicio.
+   */
+  cooldowns: 'normal' | 'none';
 }
 
 export const DEFAULT_SETTINGS: RoomSettings = {
@@ -30,6 +37,7 @@ export const DEFAULT_SETTINGS: RoomSettings = {
   teamSize: 3,
   maxPlayers: 10,
   official: false,
+  cooldowns: 'normal',
 };
 
 export interface RoomSummary {
@@ -41,6 +49,7 @@ export interface RoomSummary {
   teamSize: number;
   playing: boolean;
   official: boolean;
+  cooldowns: 'normal' | 'none';
 }
 
 export interface RoomMember {
@@ -184,6 +193,10 @@ export function sanitizeSettings(raw: unknown): Partial<RoomSettings> | null {
   if ('official' in r) {
     if (typeof r.official !== 'boolean') return null;
     out.official = r.official;
+  }
+  if ('cooldowns' in r) {
+    if (r.cooldowns !== 'normal' && r.cooldowns !== 'none') return null;
+    out.cooldowns = r.cooldowns;
   }
   return out;
 }

@@ -30,6 +30,8 @@ export interface MatchSummary {
   kicks: { red: number; blue: number };
   /** Terminó por las reglas (no se detuvo ni reinició). */
   finished: boolean;
+  /** Se jugó «Sin cooldowns» (siempre casual). */
+  noCooldowns?: boolean;
   participants: ParticipantSummary[];
 }
 
@@ -60,6 +62,7 @@ export function evaluateMatch(m: MatchSummary, sameOpponentsToday: (userId: stri
   let common: string | null = null;
   if (!m.finished) common = 'El partido no terminó por reglamento (se detuvo o reinició).';
   else if (!OFFICIAL_MODES.includes(m.mode)) common = 'El modo Súper es casual: no entrega recompensas.';
+  else if (m.noCooldowns) common = 'Partida sin cooldowns: es casual y no entrega recompensas.';
   else if (seconds < R.minSeconds) common = `Duró menos de ${R.minSeconds} s.`;
   else if (red.size < 1 || blue.size < 1 || red.size + blue.size < 2 || both) common = 'Hacen falta cuentas distintas en ambos equipos.';
   else if (m.kicks.red < R.minKicksPerTeam || m.kicks.blue < R.minKicksPerTeam) common = 'Un equipo casi no jugó la pelota.';

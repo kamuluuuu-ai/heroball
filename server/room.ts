@@ -1,5 +1,5 @@
 // Salas en memoria, permisos y bucle autoritativo de cada partido.
-import { HERO_IDS, HeroId, SNAPSHOT_EVERY_TICKS, STARTER_IDS, TICK_RATE } from '../shared/config';
+import { HERO_IDS, HeroId, POWER_LIMITS, SNAPSHOT_EVERY_TICKS, STARTER_IDS, TICK_RATE } from '../shared/config';
 import { BotBrain, botInput, makeBrain } from '../shared/bot';
 import { ECONOMY } from '../shared/economy';
 import { addPlayer, createGame, removePlayer, requestHero, setInput, step } from '../shared/game';
@@ -77,7 +77,7 @@ export class Room {
     this.name = cleanText(name, MAX_ROOM_NAME) || 'Sala HeroBall';
     this.officialAdapter = official;
     this.settings = { ...DEFAULT_SETTINGS, ...settings };
-    if (this.settings.official && !this.officialCapable(this.settings.mode)) this.settings.official = false;
+    if (this.settings.official && (!this.officialCapable(this.settings.mode) || this.settings.cooldowns === 'none')) this.settings.official = false;
     this.onEmpty = onEmpty;
   }
 
@@ -86,7 +86,8 @@ export class Room {
   }
 
   get official(): boolean {
-    return this.settings.official && this.officialAdapter !== null;
+    // sin cooldowns nunca es oficial, aunque alguien intente declararlo
+    return this.settings.official && this.officialAdapter !== null && this.settings.cooldowns !== 'none';
   }
 
   /** ¿Puede este cliente usar el héroe en esta sala? (colección en salas oficiales) */
@@ -103,6 +104,7 @@ export class Room {
     return {
       id: this.id, name: this.name, players: this.members.size, maxPlayers: this.settings.maxPlayers,
       mode: this.settings.mode, teamSize: this.settings.teamSize, playing: this.game !== null, official: this.official,
+      cooldowns: this.settings.cooldowns,
     };
   }
 
@@ -227,11 +229,22 @@ export class Room {
 
   setSettings(actor: string, s: Partial<RoomSettings>): string | null {
     if (!this.can(actor)) return 'Sólo el anfitrión puede cambiar la configuración.';
-    if (this.game) return 'Detené el partido para cambiar la configuración.';
+    if (this.game) {
+      // con el partido en curso sólo se puede cambiar Cooldowns: se aplica al próximo reinicio
+      const keys = Object.keys(s);
+      if (keys.length !== 1 || keys[0] !== 'cooldowns') return 'Detené el partido para cambiar la configuración.';
+      if (s.cooldowns === 'none' && this.official) return 'Sin cooldowns es siempre casual: no se puede en una partida oficial.';
+      if (s.cooldowns === this.settings.cooldowns) return null;
+      this.settings = { ...this.settings, cooldowns: s.cooldowns! };
+      this.sys(`Cooldowns: ${s.cooldowns === 'none' ? 'Sin cooldowns' : 'Normales'}. Se aplica al reiniciar el partido.`);
+      this.sendRoom();
+      return null;
+    }
     if (s.maxPlayers !== undefined && s.maxPlayers < this.members.size) return 'Hay más jugadores que esa capacidad.';
     const next = { ...this.settings, ...s };
     if (next.official && !this.officialAdapter) return 'Las partidas oficiales sólo existen en el servidor de HeroBall (no en salas del navegador).';
     if (next.official && !OFFICIAL_MODES.includes(next.mode)) return 'El modo Súper es casual: elegí Héroes o Clásico para una partida oficial.';
+    if (next.official && next.cooldowns === 'none') return 'Sin cooldowns es siempre casual: no puede ser una partida oficial.';
     this.settings = next;
     if (this.official) {
       // oficial: sin bots, invitados a espectadores y héroes de la colección
@@ -259,6 +272,7 @@ export class Room {
     if (players.length === 0) return 'No hay jugadores en los equipos.';
     this.game = createGame({
       mode: this.settings.mode, timeLimitMin: this.settings.timeLimitMin, scoreLimit: this.settings.scoreLimit, players,
+      noCooldowns: this.settings.cooldowns === 'none',
     });
     for (const m of this.members.values()) {
       m.queue = [];
@@ -269,7 +283,7 @@ export class Room {
     this.match = this.official
       ? { id: crypto.randomUUID(), startedAt: new Date(), matchTicks: 0, kicks: { red: 0, blue: 0 }, part: new Map() }
       : null;
-    this.sys(this.official ? 'Partido oficial iniciado: el servidor registra la participación.' : 'Partido iniciado.');
+    this.sys(this.official ? 'Partido oficial iniciado: el servidor registra la participación.' : this.game.noCd ? 'Partido iniciado sin cooldowns (casual, sin recompensas).' : 'Partido iniciado.');
     this.sendRoom();
     return null;
   }
@@ -428,7 +442,7 @@ export class Room {
     }
     const summary: MatchSummary = {
       id: match.id, mode: g.mode, startedAt: match.startedAt, endedAt: new Date(), matchTicks: match.matchTicks,
-      score: { ...g.score }, winner: g.winner, kicks: { ...match.kicks }, finished: true,
+      score: { ...g.score }, winner: g.winner, kicks: { ...match.kicks }, finished: true, noCooldowns: g.noCd,
       participants: [...match.part.entries()].map(([userId, p]) => ({
         userId, team: p.team, hero: p.hero, activeTicks: p.active,
         // abandonó, pasó a espectador o cambió de equipo durante el partido
@@ -460,6 +474,8 @@ export class Room {
     g.events = [];
     step(g);
     if (g.events.length) this.events.push(...g.events);
+    // cola acotada: si un cliente no recibe snapshots a tiempo, se descartan los eventos más viejos
+    if (this.events.length > POWER_LIMITS.maxQueuedEvents) this.events.splice(0, this.events.length - POWER_LIMITS.maxQueuedEvents);
     this.trackOfficial(g);
     if (g.events.some((e) => e.type === 'end')) this.finishOfficial(g);
     for (const e of g.events) {
@@ -478,10 +494,14 @@ export class Room {
 
   private sendSnapshots(): void {
     const g = this.game!;
+    // el historial de la pelota (rebobinar) sólo lo usa la autoridad: no viaja
     const saved = g.events;
+    const hist = g.ballHist;
     g.events = [];
+    g.ballHist = [];
     const stateJson = JSON.stringify(g);
     g.events = saved;
+    g.ballHist = hist;
     const evJson = JSON.stringify(this.events);
     this.snapBytes = stateJson.length + evJson.length + 40;
     this.events = [];

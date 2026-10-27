@@ -190,6 +190,50 @@ export const POWERS = {
       cooldown: sec(10),
     },
   },
+  // ---- héroes desbloqueables (mismos radio, velocidad y patada base) ----
+  hawkeye: {
+    /** Proyectil recto sin seguimiento; cualquier jugador lo bloquea. */
+    arrow: { range: 10 * R, speed: 13, radius: 3, ballImpulse: 2.4, cooldown: sec(7) },
+    /** Desplazamiento corto con colisiones durante todo el recorrido. */
+    sidestep: { distance: 2.5 * R, speed: 6.25, cooldown: sec(8) },
+  },
+  widow: {
+    /** Atraviesa aliados y pelota; ralentiza al primer rival alcanzado. */
+    shock: { range: 6 * R, speed: 12, radius: 4, slowPct: 0.2, slowTicks: sec(0.7), cooldown: sec(8) },
+    /** Reduce los empujes recibidos de poderes (no las colisiones). */
+    evade: { ticks: sec(0.6), resist: 0.5, cooldown: sec(10) },
+  },
+  cap: {
+    /** Un solo impacto físico; luego vuelve (sólo visual) al capitán. */
+    shield: { range: 8 * R, speed: 11, radius: 6, ballImpulse: 3, returnSpeed: 12, cooldown: sec(8) },
+    guard: { ticks: sec(1), resist: 0.6, accelMult: 0.75, cooldown: sec(10) },
+  },
+  panther: {
+    leap: { distance: 4 * R, speed: 6.7, cooldown: sec(8) },
+    /** Anticipación visible y luego empuje radial centrado en Black Panther. */
+    pulse: { delay: sec(0.3), range: 3 * R, playerImpulse: 4.5, ballImpulse: 2.5, cooldown: sec(10) },
+  },
+  ironman: {
+    repulsor: { range: 10 * R, speed: 11, radius: 4, ballImpulse: 3.4, cooldown: sec(8) },
+    /** Más aceleración y velocidad, pero gira peor (control lateral reducido). */
+    thrusters: { ticks: sec(0.9), mult: 1.3, turn: 0.45, cooldown: sec(10) },
+  },
+  flash: {
+    sprint: { ticks: sec(0.7), accelMult: 1.5, speedMult: 1.35, cooldown: sec(8) },
+    /** Estela que ralentiza rivales; el efecto dura como máximo `lingerTicks` tras salir. */
+    trail: { ticks: sec(1.2), dropTicks: sec(0.6), dropEvery: 4, radius: 1.3 * R, slowPct: 0.15, lingerTicks: sec(0.5), cooldown: sec(11) },
+  },
+  thor: {
+    hammer: { range: 8 * R, speed: 10, radius: 6, ballImpulse: 3, playerImpulse: 4, cooldown: sec(9) },
+    /** Zona marcada `delay` ticks; luego impulso radial (se puede esquivar). */
+    thunder: { delay: sec(0.5), ahead: 4 * R, range: 3 * R, playerImpulse: 4, ballImpulse: 4, cooldown: sec(12) },
+  },
+  strange: {
+    /** Desvía la pelota una sola vez hacia la dirección fijada al activar, sin acelerarla. */
+    deflect: { ahead: 6 * R, radius: 1.4 * R, ticks: sec(1), maxAngle: 30, cooldown: sec(10) },
+    /** Teletransporte sólo a una posición legal con recorrido libre. */
+    blink: { distance: 3 * R, minDistance: 0.5 * R, cooldown: sec(12) },
+  },
 };
 
 export type PowerConfig = typeof POWERS;
@@ -246,6 +290,41 @@ export const SUPER_POWERS: PowerConfig = {
     superShot: { ticks: sec(4), kickMult: 2.2, cooldown: sec(5) },
     superSpeed: { ticks: sec(2.5), mult: 1.8, cooldown: sec(6) },
   },
+  // Ajustes explícitos (no un multiplicador general): más alcance y recargas
+  // más cortas, conservando anticipaciones, topes de ralentización y la
+  // prohibición de atravesar paredes o jugadores.
+  hawkeye: {
+    arrow: { ...POWERS.hawkeye.arrow, range: 14 * R, speed: 15, ballImpulse: 3, cooldown: sec(5) },
+    sidestep: { ...POWERS.hawkeye.sidestep, distance: 3.5 * R, cooldown: sec(6) },
+  },
+  widow: {
+    shock: { ...POWERS.widow.shock, range: 8 * R, slowPct: 0.3, slowTicks: sec(1), cooldown: sec(6) },
+    evade: { ticks: sec(1), resist: 0.7, cooldown: sec(8) },
+  },
+  cap: {
+    shield: { ...POWERS.cap.shield, range: 11 * R, ballImpulse: 3.8, cooldown: sec(6) },
+    guard: { ticks: sec(1.5), resist: 0.75, accelMult: 0.8, cooldown: sec(8) },
+  },
+  panther: {
+    leap: { ...POWERS.panther.leap, distance: 5.5 * R, cooldown: sec(6) },
+    pulse: { ...POWERS.panther.pulse, range: 3.5 * R, playerImpulse: 5.5, ballImpulse: 3, cooldown: sec(8) },
+  },
+  ironman: {
+    repulsor: { ...POWERS.ironman.repulsor, range: 13 * R, ballImpulse: 4.2, cooldown: sec(6) },
+    thrusters: { ticks: sec(1.3), mult: 1.4, turn: 0.45, cooldown: sec(8) },
+  },
+  flash: {
+    sprint: { ticks: sec(1), accelMult: 1.7, speedMult: 1.5, cooldown: sec(6) },
+    trail: { ...POWERS.flash.trail, ticks: sec(1.6), dropTicks: sec(0.8), slowPct: 0.2, cooldown: sec(9) },
+  },
+  thor: {
+    hammer: { ...POWERS.thor.hammer, range: 10 * R, ballImpulse: 3.6, playerImpulse: 5, cooldown: sec(7) },
+    thunder: { ...POWERS.thor.thunder, range: 3.5 * R, playerImpulse: 5, ballImpulse: 5, cooldown: sec(9) },
+  },
+  strange: {
+    deflect: { ...POWERS.strange.deflect, ahead: 8 * R, ticks: sec(1.3), maxAngle: 40, cooldown: sec(8) },
+    blink: { ...POWERS.strange.blink, distance: 4 * R, cooldown: sec(9) },
+  },
 };
 
 /** Configuración de poderes según el modo (Clásico no usa poderes). */
@@ -253,8 +332,36 @@ export function powersFor(mode: string): PowerConfig {
   return mode === 'super' ? SUPER_POWERS : POWERS;
 }
 
-export type HeroId = 'spider' | 'batman' | 'hulk' | 'superman';
-export const HERO_IDS: HeroId[] = ['spider', 'batman', 'hulk', 'superman'];
+export type HeroId =
+  | 'spider' | 'batman' | 'hulk' | 'superman'
+  | 'hawkeye' | 'widow' | 'cap' | 'panther' | 'ironman' | 'flash' | 'thor' | 'strange';
+export const STARTER_IDS: HeroId[] = ['spider', 'batman', 'hulk', 'superman'];
+export const HERO_IDS: HeroId[] = [...STARTER_IDS, 'hawkeye', 'widow', 'cap', 'panther', 'ironman', 'flash', 'thor', 'strange'];
+
+export type Rarity = 'common' | 'rare' | 'epic' | 'legendary';
+export type HeroRole = 'ataque' | 'defensa' | 'control' | 'movilidad';
+
+/**
+ * Catálogo: la rareza indica frecuencia de obtención en cofres, no poder.
+ * Los iniciales son gratis para todos y no aparecen en cofres.
+ */
+export const HERO_CATALOG: Record<HeroId, { rarity: Rarity; role: HeroRole; starter: boolean }> = {
+  spider: { rarity: 'common', role: 'control', starter: true },
+  batman: { rarity: 'common', role: 'control', starter: true },
+  hulk: { rarity: 'common', role: 'defensa', starter: true },
+  superman: { rarity: 'common', role: 'ataque', starter: true },
+  hawkeye: { rarity: 'common', role: 'ataque', starter: false },
+  widow: { rarity: 'common', role: 'control', starter: false },
+  cap: { rarity: 'rare', role: 'defensa', starter: false },
+  panther: { rarity: 'rare', role: 'movilidad', starter: false },
+  ironman: { rarity: 'epic', role: 'ataque', starter: false },
+  flash: { rarity: 'epic', role: 'movilidad', starter: false },
+  thor: { rarity: 'legendary', role: 'defensa', starter: false },
+  strange: { rarity: 'legendary', role: 'control', starter: false },
+};
+
+export const RARITY_LABEL: Record<Rarity, string> = { common: 'Común', rare: 'Raro', epic: 'Épico', legendary: 'Legendario' };
+export const ROLE_LABEL: Record<HeroRole, string> = { ataque: 'Ataque', defensa: 'Defensa', control: 'Control', movilidad: 'Movilidad' };
 
 export interface PowerInfo {
   name: string;
@@ -269,6 +376,57 @@ export interface HeroInfo {
 }
 
 const S = SUPER_POWERS;
+
+/** Número en R con coma decimal (2.5 → "2,5R"). */
+const inR = (v: number) => `${String(+(v / R).toFixed(1)).replace('.', ',')}R`;
+const secs = (t: number) => `${String(+(t / TICK_RATE).toFixed(2)).replace('.', ',')} s`;
+const pct = (v: number) => `${Math.round(v * 100)} %`;
+
+/** Textos de los héroes desbloqueables, generados desde los valores del modo. */
+function newHeroes(P: PowerConfig): Record<Exclude<HeroId, 'spider' | 'batman' | 'hulk' | 'superman'>, HeroInfo> {
+  return {
+    hawkeye: {
+      name: 'Hawkeye',
+      q: { name: 'Flecha de precisión', desc: `Flecha recta (${inR(P.hawkeye.arrow.range)}) que empuja la pelota. Sin seguimiento; la frena cualquier jugador.`, cooldown: P.hawkeye.arrow.cooldown },
+      e: { name: 'Paso lateral', desc: `Desplazamiento de hasta ${inR(P.hawkeye.sidestep.distance)} hacia donde apuntás, chocando normalmente.`, cooldown: P.hawkeye.sidestep.cooldown },
+    },
+    widow: {
+      name: 'Black Widow',
+      q: { name: 'Descarga', desc: `Proyectil (${inR(P.widow.shock.range)}): el primer rival alcanzado acelera ${pct(P.widow.shock.slowPct)} menos durante ${secs(P.widow.shock.slowTicks)}.`, cooldown: P.widow.shock.cooldown },
+      e: { name: 'Evasión', desc: `Durante ${secs(P.widow.evade.ticks)} recibís ${pct(P.widow.evade.resist)} menos de empuje de poderes. Seguís chocando.`, cooldown: P.widow.evade.cooldown },
+    },
+    cap: {
+      name: 'Capitán América',
+      q: { name: 'Escudo', desc: `Lanza el escudo (${inR(P.cap.shield.range)}): un solo impacto a la pelota y vuelve sin volver a golpear.`, cooldown: P.cap.shield.cooldown },
+      e: { name: 'Guardia', desc: `Durante ${secs(P.cap.guard.ticks)} resistís ${pct(P.cap.guard.resist)} de los empujes de poderes, con ${pct(1 - P.cap.guard.accelMult)} menos aceleración.`, cooldown: P.cap.guard.cooldown },
+    },
+    panther: {
+      name: 'Black Panther',
+      q: { name: 'Salto felino', desc: `Avance de hasta ${inR(P.panther.leap.distance)} hacia donde apuntás; se detiene ante jugadores, pelota u obstáculos.`, cooldown: P.panther.leap.cooldown },
+      e: { name: 'Pulso cinético', desc: `Tras ${secs(P.panther.pulse.delay)} de aviso empuja a los rivales a ${inR(P.panther.pulse.range)} y un poco la pelota.`, cooldown: P.panther.pulse.cooldown },
+    },
+    ironman: {
+      name: 'Iron Man',
+      q: { name: 'Repulsor', desc: `Disparo recto (${inR(P.ironman.repulsor.range)}) que impulsa la pelota en la dirección del disparo. Sin autoapuntado.`, cooldown: P.ironman.repulsor.cooldown },
+      e: { name: 'Propulsores', desc: `+${pct(P.ironman.thrusters.mult - 1)} aceleración y velocidad máxima durante ${secs(P.ironman.thrusters.ticks)}, girando peor.`, cooldown: P.ironman.thrusters.cooldown },
+    },
+    flash: {
+      name: 'Flash',
+      q: { name: 'Carrera relámpago', desc: `+${pct(P.flash.sprint.accelMult - 1)} aceleración y +${pct(P.flash.sprint.speedMult - 1)} velocidad máxima durante ${secs(P.flash.sprint.ticks)}.`, cooldown: P.flash.sprint.cooldown },
+      e: { name: 'Estela', desc: `Deja una estela (${secs(P.flash.trail.ticks)}) que reduce ${pct(P.flash.trail.slowPct)} la aceleración rival; dura hasta ${secs(P.flash.trail.lingerTicks)} tras salir.`, cooldown: P.flash.trail.cooldown },
+    },
+    thor: {
+      name: 'Thor',
+      q: { name: 'Mjolnir', desc: `Martillo (${inR(P.thor.hammer.range)}) que empuja la pelota o al primer rival alcanzado.`, cooldown: P.thor.hammer.cooldown },
+      e: { name: 'Trueno', desc: `Marca una zona de ${inR(P.thor.thunder.range)} delante durante ${secs(P.thor.thunder.delay)}; luego empuja todo lo que siga dentro.`, cooldown: P.thor.thunder.cooldown },
+    },
+    strange: {
+      name: 'Doctor Strange',
+      q: { name: 'Desvío arcano', desc: `Portal hasta ${inR(P.strange.deflect.ahead)} delante: durante ${secs(P.strange.deflect.ticks)} desvía la pelota una vez hasta ${P.strange.deflect.maxAngle}° hacia la flecha, sin acelerarla.`, cooldown: P.strange.deflect.cooldown },
+      e: { name: 'Paso místico', desc: `Teletransporte de hasta ${inR(P.strange.blink.distance)} con recorrido libre; no atraviesa paredes, jugadores ni pelota.`, cooldown: P.strange.blink.cooldown },
+    },
+  };
+}
 
 export const HEROES: Record<HeroId, HeroInfo> = {
   spider: {
@@ -291,6 +449,7 @@ export const HEROES: Record<HeroId, HeroInfo> = {
     q: { name: 'Súper disparo', desc: 'Próxima patada +50 % (2 s).', cooldown: POWERS.superman.superShot.cooldown },
     e: { name: 'Súper velocidad', desc: '+40 % aceleración y velocidad 1,2 s.', cooldown: POWERS.superman.superSpeed.cooldown },
   },
+  ...newHeroes(POWERS),
 };
 
 /** Textos del modo Súper. */
@@ -315,6 +474,7 @@ export const SUPER_HEROES: Record<HeroId, HeroInfo> = {
     q: { name: 'Disparo de acero', desc: 'Próxima patada ×2,2 (4 s).', cooldown: S.superman.superShot.cooldown },
     e: { name: 'Vuelo supersónico', desc: '+80 % aceleración y velocidad durante 2,5 s.', cooldown: S.superman.superSpeed.cooldown },
   },
+  ...newHeroes(S),
 };
 
 export function heroInfo(hero: HeroId, mode: string): HeroInfo {

@@ -1,8 +1,8 @@
 // Renderizado Canvas 2D. Coordenadas físicas fijas; la cámara sólo escala y
 // traslada, así la cancha nunca se deforma.
-import { COLORS, KICK, STADIUM } from '../../../shared/config';
+import { COLORS, KICK, STADIUM, powersFor } from '../../../shared/config';
 import { stadium, type Seg } from '../../../shared/physics';
-import type { GameEvent, GameState, PlayerState, Team } from '../../../shared/types';
+import type { GameEvent, GameState, PlayerState, Projectile, Team } from '../../../shared/types';
 import { IN } from '../../../shared/types';
 import { drawHero } from './heroArt';
 import { autoAim, grappleAim } from '../../../shared/powers';
@@ -76,6 +76,11 @@ export class Renderer {
           break;
         case 'hit':
           this.fx.push({ kind: 'spark', x: e.x, y: e.y, r: 10, color: e.target === 'player' ? '#9fd1ff' : '#ffffff', t0: now, dur: 200 });
+          break;
+        case 'blink':
+          // origen y destino del paso místico
+          this.fx.push({ kind: 'ring', x: e.x0, y: e.y0, r: 18, color: '#E2A23B', t0: now, dur: 260 });
+          this.fx.push({ kind: 'ring', x: e.x1, y: e.y1, r: 18, color: '#E2A23B', t0: now, dur: 260 });
           break;
         case 'goal': {
           const who = e.scorer ? names.get(e.scorer) : null;
@@ -185,7 +190,7 @@ export class Renderer {
         c.beginPath();
         c.arc(pr.x, pr.y, pr.r + 1, 0, Math.PI * 2);
         c.fill();
-      } else {
+      } else if (pr.kind === 'batarang') {
         c.save();
         c.translate(pr.x, pr.y);
         c.rotate(performance.now() / 50);
@@ -199,8 +204,11 @@ export class Renderer {
         c.fill();
         c.stroke();
         c.restore();
+      } else {
+        this.drawShot(c, pr);
       }
     }
+    this.drawZones(c, s);
 
     for (const p of s.players) this.drawPlayer(c, s, p, p.id === localId, o);
     this.drawAimReticle(c, s, localId);
@@ -328,6 +336,105 @@ export class Renderer {
     }
   }
 
+  /** Proyectiles de los héroes nuevos: forma propia y estela corta en la dirección de viaje. */
+  private drawShot(c: CanvasRenderingContext2D, pr: Projectile): void {
+    const sp = Math.hypot(pr.vx, pr.vy) || 1;
+    const ux = pr.vx / sp;
+    const uy = pr.vy / sp;
+    const color = { arrow: '#E9D9F5', shock: '#7FD6FF', shield: '#F2F2F2', repulsor: '#9FF3FF', hammer: '#C9D2E3' }[pr.kind as 'arrow'] ?? '#fff';
+    c.save();
+    c.globalAlpha = pr.returning ? 0.45 : 1;
+    // estela
+    c.strokeStyle = color;
+    c.lineWidth = Math.max(1.5, pr.r * 0.6);
+    c.globalAlpha *= 0.5;
+    c.beginPath();
+    c.moveTo(pr.x, pr.y);
+    c.lineTo(pr.x - ux * pr.r * 4, pr.y - uy * pr.r * 4);
+    c.stroke();
+    c.globalAlpha = pr.returning ? 0.45 : 1;
+    c.translate(pr.x, pr.y);
+    if (pr.kind === 'shield') {
+      for (const [k, col] of [[1, '#C8232C'], [0.66, '#F2F2F2'], [0.4, '#1F3F94']] as const) {
+        c.beginPath();
+        c.arc(0, 0, pr.r * k, 0, Math.PI * 2);
+        c.fillStyle = col;
+        c.fill();
+      }
+    } else if (pr.kind === 'hammer') {
+      c.rotate(performance.now() / 70);
+      c.fillStyle = color;
+      c.fillRect(-pr.r, -pr.r * 0.55, pr.r * 2, pr.r * 1.1);
+      c.fillStyle = '#7B5A3A';
+      c.fillRect(-pr.r * 0.2, pr.r * 0.5, pr.r * 0.4, pr.r * 1.2);
+    } else {
+      c.beginPath();
+      c.arc(0, 0, pr.r + 1, 0, Math.PI * 2);
+      c.fillStyle = color;
+      c.fill();
+      c.lineWidth = 1;
+      c.strokeStyle = 'rgba(0,0,0,0.6)';
+      c.stroke();
+    }
+    c.restore();
+  }
+
+  /**
+   * Zonas con anticipación visible: el relleno crece hasta el momento del
+   * impacto (pulso y trueno), la estela es translúcida y el desvío muestra su
+   * dirección fija con una flecha.
+   */
+  private drawZones(c: CanvasRenderingContext2D, s: GameState): void {
+    const P = powersFor(s.mode);
+    for (const z of s.zones) {
+      c.save();
+      if (z.kind === 'pulse' || z.kind === 'thunder') {
+        const total = z.kind === 'pulse' ? P.panther.pulse.delay : P.thor.thunder.delay;
+        const k = 1 - z.delay / total;
+        c.beginPath();
+        c.arc(z.x, z.y, z.r, 0, Math.PI * 2);
+        c.fillStyle = z.kind === 'thunder' ? 'rgba(160,200,255,0.18)' : 'rgba(170,140,255,0.16)';
+        c.fill();
+        c.setLineDash([5, 4]);
+        c.lineWidth = 2;
+        c.strokeStyle = z.kind === 'thunder' ? 'rgba(200,225,255,0.95)' : 'rgba(200,180,255,0.95)';
+        c.stroke();
+        c.setLineDash([]);
+        c.beginPath();
+        c.arc(z.x, z.y, z.r * k, 0, Math.PI * 2);
+        c.lineWidth = 2;
+        c.stroke();
+      } else if (z.kind === 'trail') {
+        c.fillStyle = 'rgba(255,214,60,0.22)';
+        for (const q of z.pts) {
+          c.beginPath();
+          c.arc(q.x, q.y, z.r, 0, Math.PI * 2);
+          c.fill();
+        }
+      } else {
+        c.beginPath();
+        c.arc(z.x, z.y, z.r, 0, Math.PI * 2);
+        c.fillStyle = 'rgba(226,162,59,0.16)';
+        c.fill();
+        c.lineWidth = 2;
+        c.strokeStyle = 'rgba(226,162,59,0.95)';
+        c.stroke();
+        // flecha con la dirección fija del desvío
+        c.translate(z.x, z.y);
+        c.rotate(Math.atan2(z.dy, z.dx));
+        c.beginPath();
+        c.moveTo(-z.r * 0.6, 0);
+        c.lineTo(z.r * 0.6, 0);
+        c.moveTo(z.r * 0.6, 0);
+        c.lineTo(z.r * 0.25, -z.r * 0.3);
+        c.moveTo(z.r * 0.6, 0);
+        c.lineTo(z.r * 0.25, z.r * 0.3);
+        c.stroke();
+      }
+      c.restore();
+    }
+  }
+
   private drawBall(c: CanvasRenderingContext2D, s: GameState): void {
     const b = s.ball;
     c.beginPath();
@@ -344,7 +451,15 @@ export class Renderer {
     const team = TEAM_COLOR[p.team];
     const t = performance.now();
     // auras de efectos (breves y legibles)
-    if (p.dash > 0 || p.superSpeed > 0) {
+    if (p.guard > 0 || p.evade > 0) {
+      // resistencia a empujes de poderes: anillo doble
+      c.beginPath();
+      c.arc(x, y, r + 4, 0, Math.PI * 2);
+      c.strokeStyle = p.guard > 0 ? 'rgba(120,170,255,0.85)' : 'rgba(220,220,230,0.7)';
+      c.lineWidth = 2;
+      c.stroke();
+    }
+    if (p.dash > 0 || p.superSpeed > 0 || p.thrusters > 0 || p.sprint > 0 || p.rush > 0) {
       c.strokeStyle = 'rgba(255,255,255,0.45)';
       c.lineWidth = 2;
       const sp = Math.hypot(p.d.vx, p.d.vy) || 1;
@@ -389,7 +504,7 @@ export class Renderer {
       // emblema dentro de un anillo del color del equipo
       c.save();
       c.translate(x, y);
-      drawHero(c, p.hero, r - 3.6);
+      drawHero(c, p.hero, r - 5);
       c.restore();
     }
     c.beginPath();
@@ -507,14 +622,14 @@ export class Renderer {
       lines = ['Pausa'];
     }
     if (!lines) return;
-    const size = Math.max(22, Math.min(W, H) * 0.09);
+    const size = Math.max(18, Math.min(W, H) * 0.06);
     c.globalAlpha = alpha;
     c.textAlign = 'center';
     c.textBaseline = 'middle';
     lines.forEach((line, i) => {
       const fs = i === 0 ? size : size * 0.45;
       c.font = `900 ${fs}px "Arial Black", Arial, sans-serif`;
-      const y = H * 0.42 + (i === 0 ? 0 : size * 0.85);
+      const y = H * 0.16 + (i === 0 ? 0 : size * 0.85);
       c.lineWidth = fs * 0.14;
       c.strokeStyle = '#000';
       c.strokeText(line, W / 2, y);

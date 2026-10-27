@@ -147,7 +147,168 @@ function superman(c: Ctx, r: number) {
   c.fillText('S', 0, -r * 0.08);
 }
 
-const DRAW: Record<HeroId, (c: Ctx, r: number) => void> = { spider, batman, hulk, superman };
+/** Fondo de color con un aro interior, base de los emblemas nuevos. */
+function base(c: Ctx, r: number, fill: string, ring?: string) {
+  circle(c, 0, 0, r);
+  c.fillStyle = fill;
+  c.fill();
+  if (ring) {
+    circle(c, 0, 0, r * 0.82);
+    c.lineWidth = r * 0.1;
+    c.strokeStyle = ring;
+    c.stroke();
+  }
+}
+
+function hawkeye(c: Ctx, r: number) {
+  base(c, r, '#4B2A6B', '#8E5BB8');
+  // diana
+  circle(c, 0, 0, r * 0.5);
+  c.lineWidth = r * 0.1;
+  c.strokeStyle = '#E9D9F5';
+  c.stroke();
+  circle(c, 0, 0, r * 0.17);
+  c.fillStyle = '#E9D9F5';
+  c.fill();
+  // flecha
+  c.beginPath();
+  c.moveTo(-r * 0.75, r * 0.75);
+  c.lineTo(r * 0.45, -r * 0.45);
+  c.stroke();
+  c.beginPath();
+  c.moveTo(r * 0.62, -r * 0.62);
+  c.lineTo(r * 0.22, -r * 0.5);
+  c.lineTo(r * 0.5, -r * 0.22);
+  c.closePath();
+  c.fill();
+}
+
+function widow(c: Ctx, r: number) {
+  base(c, r, '#1C1C22', '#3A3A44');
+  // reloj de arena rojo
+  c.fillStyle = '#D9232E';
+  c.beginPath();
+  c.moveTo(-r * 0.42, -r * 0.5);
+  c.lineTo(r * 0.42, -r * 0.5);
+  c.lineTo(r * 0.06, 0);
+  c.lineTo(r * 0.42, r * 0.5);
+  c.lineTo(-r * 0.42, r * 0.5);
+  c.lineTo(-r * 0.06, 0);
+  c.closePath();
+  c.fill();
+}
+
+function star(c: Ctx, r: number) {
+  c.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + (i * Math.PI) / 5;
+    const k = i % 2 ? r * 0.42 : r;
+    c.lineTo(Math.cos(a) * k, Math.sin(a) * k);
+  }
+  c.closePath();
+}
+
+function cap(c: Ctx, r: number) {
+  // escudo concéntrico
+  base(c, r, '#C8232C');
+  circle(c, 0, 0, r * 0.74);
+  c.fillStyle = '#F2F2F2';
+  c.fill();
+  circle(c, 0, 0, r * 0.52);
+  c.fillStyle = '#C8232C';
+  c.fill();
+  circle(c, 0, 0, r * 0.36);
+  c.fillStyle = '#1F3F94';
+  c.fill();
+  star(c, r * 0.3);
+  c.fillStyle = '#F2F2F2';
+  c.fill();
+}
+
+function panther(c: Ctx, r: number) {
+  base(c, r, '#1A1A24', '#6E5AA8');
+  // garras plateadas
+  c.strokeStyle = '#C9C6E8';
+  c.lineWidth = r * 0.12;
+  c.lineCap = 'round';
+  for (const o of [-0.35, 0, 0.35]) {
+    c.beginPath();
+    c.moveTo(o * r - r * 0.15, -r * 0.5);
+    c.quadraticCurveTo(o * r + r * 0.2, 0, o * r - r * 0.05, r * 0.52);
+    c.stroke();
+  }
+}
+
+function ironman(c: Ctx, r: number) {
+  base(c, r, '#A3151C', '#E0B12E');
+  // placa facial dorada y ojos
+  c.fillStyle = '#E0B12E';
+  c.beginPath();
+  c.moveTo(-r * 0.45, -r * 0.42);
+  c.lineTo(r * 0.45, -r * 0.42);
+  c.lineTo(r * 0.38, r * 0.3);
+  c.lineTo(0, r * 0.55);
+  c.lineTo(-r * 0.38, r * 0.3);
+  c.closePath();
+  c.fill();
+  c.fillStyle = '#E8FBFF';
+  c.fillRect(-r * 0.36, -r * 0.18, r * 0.26, r * 0.1);
+  c.fillRect(r * 0.1, -r * 0.18, r * 0.26, r * 0.1);
+}
+
+function bolt(c: Ctx, r: number) {
+  c.beginPath();
+  c.moveTo(r * 0.15, -r);
+  c.lineTo(-r * 0.45, r * 0.1);
+  c.lineTo(-r * 0.02, r * 0.1);
+  c.lineTo(-r * 0.2, r);
+  c.lineTo(r * 0.45, -r * 0.15);
+  c.lineTo(r * 0.02, -r * 0.15);
+  c.closePath();
+}
+
+function flash(c: Ctx, r: number) {
+  base(c, r, '#C21A1A');
+  circle(c, 0, 0, r * 0.62);
+  c.fillStyle = '#F7F1E0';
+  c.fill();
+  bolt(c, r * 0.58);
+  c.fillStyle = '#F1C21B';
+  c.fill();
+  c.lineWidth = r * 0.04;
+  c.strokeStyle = '#7A4C00';
+  c.stroke();
+}
+
+function thor(c: Ctx, r: number) {
+  base(c, r, '#2D3B55', '#B9C3D6');
+  // martillo
+  c.fillStyle = '#B9C3D6';
+  c.fillRect(-r * 0.48, -r * 0.48, r * 0.96, r * 0.42);
+  c.fillStyle = '#7B5A3A';
+  c.fillRect(-r * 0.09, -r * 0.06, r * 0.18, r * 0.62);
+  c.fillStyle = '#B9C3D6';
+  c.fillRect(-r * 0.12, r * 0.52, r * 0.24, r * 0.1);
+}
+
+function strange(c: Ctx, r: number) {
+  base(c, r, '#20406E', '#E2A23B');
+  // sello: dos cuadrados girados y un ojo
+  c.strokeStyle = '#E2A23B';
+  c.lineWidth = r * 0.07;
+  for (const a of [0, Math.PI / 4]) {
+    c.save();
+    c.rotate(a);
+    c.strokeRect(-r * 0.4, -r * 0.4, r * 0.8, r * 0.8);
+    c.restore();
+  }
+  c.beginPath();
+  c.ellipse(0, 0, r * 0.26, r * 0.14, 0, 0, Math.PI * 2);
+  c.fillStyle = '#7CF0A0';
+  c.fill();
+}
+
+const DRAW: Record<HeroId, (c: Ctx, r: number) => void> = { spider, batman, hulk, superman, hawkeye, widow, cap, panther, ironman, flash, thor, strange };
 
 export function drawHero(c: Ctx, hero: HeroId, r: number): void {
   c.save();
@@ -239,6 +400,135 @@ export function drawPowerIcon(c: Ctx, hero: HeroId, slot: 'q' | 'e', s: number):
       c.moveTo(r * 0.1, r * 0.25);
       c.lineTo(r, -r * 0.3);
       c.stroke();
+      break;
+    case 'hawkeye-q': // flecha
+    case 'ironman-q': // repulsor (flecha con anillo)
+      c.beginPath();
+      c.moveTo(-r, r * 0.6);
+      c.lineTo(r * 0.6, -r * 0.6);
+      c.stroke();
+      c.beginPath();
+      c.moveTo(r, -r);
+      c.lineTo(r * 0.25, -r * 0.8);
+      c.lineTo(r * 0.8, -r * 0.25);
+      c.closePath();
+      c.fill();
+      if (key === 'ironman-q') {
+        circle(c, -r * 0.45, r * 0.2, r * 0.35);
+        c.stroke();
+      }
+      break;
+    case 'hawkeye-e': // paso lateral
+    case 'panther-q': // salto
+      c.setLineDash([s * 0.05, s * 0.05]);
+      c.beginPath();
+      c.moveTo(-r, r * 0.4);
+      c.quadraticCurveTo(0, key === 'panther-q' ? -r : r * 0.4, r * 0.55, r * 0.1);
+      c.stroke();
+      c.setLineDash([]);
+      circle(c, r * 0.65, r * 0.1, r * 0.3);
+      c.fill();
+      break;
+    case 'widow-q': // descarga
+    case 'thor-e': // trueno
+      bolt(c, r);
+      c.fill();
+      if (key === 'thor-e') {
+        circle(c, 0, 0, r);
+        c.setLineDash([s * 0.05, s * 0.05]);
+        c.stroke();
+      }
+      break;
+    case 'widow-e': // evasión: silueta con estelas
+    case 'cap-e': // guardia: escudo
+      if (key === 'cap-e') {
+        c.beginPath();
+        c.moveTo(0, -r);
+        c.lineTo(r * 0.8, -r * 0.6);
+        c.lineTo(r * 0.6, r * 0.4);
+        c.lineTo(0, r);
+        c.lineTo(-r * 0.6, r * 0.4);
+        c.lineTo(-r * 0.8, -r * 0.6);
+        c.closePath();
+        c.stroke();
+      } else {
+        circle(c, r * 0.3, 0, r * 0.45);
+        c.fill();
+        for (const o of [-0.35, 0.35]) {
+          c.beginPath();
+          c.moveTo(-r, o * r);
+          c.lineTo(-r * 0.3, o * r);
+          c.stroke();
+        }
+      }
+      break;
+    case 'cap-q': // escudo lanzado
+      circle(c, 0, 0, r * 0.8);
+      c.stroke();
+      circle(c, 0, 0, r * 0.4);
+      c.fill();
+      break;
+    case 'panther-e': // pulso
+      circle(c, 0, 0, r * 0.25);
+      c.fill();
+      c.setLineDash([s * 0.05, s * 0.04]);
+      circle(c, 0, 0, r * 0.62);
+      c.stroke();
+      circle(c, 0, 0, r);
+      c.stroke();
+      c.setLineDash([]);
+      break;
+    case 'ironman-e': // propulsores
+    case 'flash-q': // carrera
+      for (const o of [-0.45, 0, 0.45]) {
+        c.beginPath();
+        c.moveTo(-r, o * r);
+        c.lineTo(r * 0.1, o * r);
+        c.stroke();
+      }
+      if (key === 'flash-q') {
+        bolt(c, r * 0.6);
+        c.translate(r * 0.45, 0);
+        c.fill();
+      } else {
+        c.beginPath();
+        c.moveTo(r * 0.2, -r * 0.6);
+        c.lineTo(r, 0);
+        c.lineTo(r * 0.2, r * 0.6);
+        c.closePath();
+        c.fill();
+      }
+      break;
+    case 'flash-e': // estela
+      for (const [x, k] of [[-0.6, 0.18], [-0.1, 0.26], [0.45, 0.34]] as const) {
+        circle(c, x * r, 0, k * r);
+        c.fill();
+      }
+      break;
+    case 'thor-q': // martillo
+      c.fillRect(-r * 0.7, -r * 0.7, r * 1.1, r * 0.55);
+      c.save();
+      c.rotate(-Math.PI / 4);
+      c.fillRect(-r * 0.1, -r * 0.1, r * 0.2, r * 1.2);
+      c.restore();
+      break;
+    case 'strange-q': // desvío: arco con flecha
+      c.beginPath();
+      c.arc(0, r * 0.6, r * 1.1, -Math.PI * 0.85, -Math.PI * 0.35);
+      c.stroke();
+      c.beginPath();
+      c.moveTo(r * 0.75, -r * 0.55);
+      c.lineTo(r * 0.25, -r * 0.55);
+      c.lineTo(r * 0.6, -r * 0.1);
+      c.closePath();
+      c.fill();
+      break;
+    case 'strange-e': // paso místico: dos portales
+      for (const x of [-0.5, 0.5]) {
+        c.beginPath();
+        c.ellipse(x * r, 0, r * 0.3, r * 0.7, 0, 0, Math.PI * 2);
+        c.stroke();
+      }
       break;
   }
   c.restore();

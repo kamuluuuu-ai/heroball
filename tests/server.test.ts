@@ -17,7 +17,7 @@ describe('validación de mensajes', () => {
     expect(parseClientMessage('{"t":"hack"}')).toBeNull();
     expect(parseClientMessage('{"t":"in","s":1,"b":999}')).toBeNull();
     expect(parseClientMessage('{"t":"in","s":-1,"b":1}')).toBeNull();
-    expect(parseClientMessage('{"t":"hero","hero":"thor"}')).toBeNull();
+    expect(parseClientMessage('{"t":"hero","hero":"loki"}')).toBeNull();
     expect(parseClientMessage('{"t":"settings","settings":{"teamSize":7}}')).toBeNull();
     expect(parseClientMessage('{"t":"chat","text":"' + 'x'.repeat(3000) + '"}')).toBeNull();
     expect(parseClientMessage('{"t":"in","s":5,"b":17}')).toEqual({ t: 'in', s: 5, b: 17 });

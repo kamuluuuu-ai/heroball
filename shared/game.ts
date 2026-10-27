@@ -1,7 +1,7 @@
 // Reglas del partido: saque, goles, tiempo, gol de oro, patadas y entradas.
 import { HeroId, KICK, LIMITS, PLAYER, RULES, STADIUM, TICK_RATE, powersFor } from './config';
 import { clampSpeed, makeDisc, Seg, stadium, stepWorld } from './physics';
-import { accelMult, activate, applyDash, clearEffects, kickMult, speedLimitMult, updatePowers } from './powers';
+import { accelMult, activate, applyDash, applyRush, clearEffects, kickMult, speedLimitMult, turnMult, updatePowers } from './powers';
 import { GameMode, GameState, IN, PlayerState, Team } from './types';
 
 export interface GameOptions {
@@ -33,6 +33,7 @@ export function createGame(o: GameOptions): GameState {
     players: [],
     projectiles: [],
     tethers: [],
+    zones: [],
     nextId: 1,
     lastTouch: null,
     events: [],
@@ -52,6 +53,8 @@ function newPlayer(id: string, team: Team, hero: HeroId): PlayerState {
     cdQ: 0, cdE: 0,
     dash: 0, fury: 0, superShot: 0, superSpeed: 0,
     slowPct: 0, slowTicks: 0, slowNow: 0,
+    rush: 0, rushSpeed: 0, rushDx: 0, rushDy: 0,
+    evade: 0, guard: 0, thrusters: 0, sprint: 0,
   };
 }
 
@@ -77,6 +80,7 @@ export function removePlayer(s: GameState, id: string): void {
   s.players = s.players.filter((p) => p.id !== id);
   s.projectiles = s.projectiles.filter((p) => p.owner !== id);
   s.tethers = s.tethers.filter((t) => t.owner !== id && t.target !== id);
+  s.zones = s.zones.filter((z) => z.owner !== id);
   if (s.lastTouch === id) s.lastTouch = null;
 }
 
@@ -178,11 +182,22 @@ function updatePlayer(s: GameState, p: PlayerState): void {
   p.d.invMass = fury ? PLAYER.invMass / powersFor(s.mode).hulk.fury.massMult : PLAYER.invMass;
   p.d.damping = held ? PLAYER.kickingDamping : PLAYER.damping;
 
-  if (p.dash > 0) {
+  if (p.rush > 0) {
+    applyRush(s, p);
+  } else if (p.dash > 0) {
     applyDash(s, p);
   } else {
     const a = (held ? PLAYER.kickingAcceleration : PLAYER.acceleration) * accelMult(s, p);
     const before = Math.hypot(p.d.vx, p.d.vy);
+    const turn = turnMult(s, p);
+    if (turn < 1 && before > 0.3) {
+      // menos control lateral: se atenúa la componente perpendicular a la velocidad
+      const ux = p.d.vx / before;
+      const uy = p.d.vy / before;
+      const along = dx * ux + dy * uy;
+      dx = ux * along + (dx - ux * along) * turn;
+      dy = uy * along + (dy - uy * along) * turn;
+    }
     p.d.vx += dx * a;
     p.d.vy += dy * a;
     // la propia aceleración no supera el límite configurado (los empujes externos sí)

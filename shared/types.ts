@@ -44,11 +44,23 @@ export interface PlayerState {
   slowTicks: number;
   /** Ralentización efectiva aplicada este tick (para dibujar). */
   slowNow: number;
+  /** Desplazamiento con colisiones (Paso lateral, Salto felino): ticks y velocidad. */
+  rush: number;
+  rushSpeed: number;
+  rushDx: number;
+  rushDy: number;
+  /** Efectos temporales de los héroes desbloqueables (ticks restantes). */
+  evade: number;
+  guard: number;
+  thrusters: number;
+  sprint: number;
 }
 
 export interface Projectile {
   id: number;
-  kind: 'web' | 'batarang' | 'hook';
+  kind: 'web' | 'batarang' | 'hook' | 'arrow' | 'shock' | 'shield' | 'repulsor' | 'hammer';
+  /** Escudo de vuelta: sólo visual, no golpea nada. */
+  returning?: boolean;
   owner: string;
   team: Team;
   x: number;
@@ -72,11 +84,36 @@ export interface Tether {
   ticks: number;
 }
 
+/**
+ * Zona de efecto con anticipación visible:
+ * - 'pulse': Black Panther, sigue al dueño y explota a los `delay` ticks.
+ * - 'thunder': Thor, fija; explota a los `delay` ticks.
+ * - 'trail': Flash, puntos de estela que ralentizan rivales.
+ * - 'deflect': Doctor Strange, desvía una vez la pelota hacia (dx, dy).
+ */
+export interface Zone {
+  id: number;
+  kind: 'pulse' | 'thunder' | 'trail' | 'deflect';
+  owner: string;
+  team: Team;
+  x: number;
+  y: number;
+  r: number;
+  /** Ticks hasta que explota (pulse/thunder); 0 para las demás. */
+  delay: number;
+  /** Ticks de vida restantes. */
+  ticks: number;
+  dx: number;
+  dy: number;
+  pts: { x: number; y: number }[];
+}
+
 export type GameEvent =
   | { type: 'kick'; id: string; power: number }
   | { type: 'goal'; team: Team; scorer: string | null }
   | { type: 'power'; id: string; slot: 'q' | 'e'; hero: HeroId }
   | { type: 'slam'; x: number; y: number; r: number }
+  | { type: 'blink'; id: string; x0: number; y0: number; x1: number; y1: number }
   | { type: 'hit'; x: number; y: number; target: 'ball' | 'player' | 'wall' }
   | { type: 'tether'; id: string }
   | { type: 'kickoff' }
@@ -103,6 +140,7 @@ export interface GameState {
   players: PlayerState[];
   projectiles: Projectile[];
   tethers: Tether[];
+  zones: Zone[];
   nextId: number;
   lastTouch: string | null;
   events: GameEvent[];

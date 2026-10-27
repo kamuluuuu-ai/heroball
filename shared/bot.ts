@@ -32,6 +32,20 @@ function dirBits(dx: number, dy: number, dead = 4): number {
   return b;
 }
 
+/** Rival más cercano: distancia entre bordes y alineación con la dirección apuntada. */
+function nearestRival(s: GameState, me: PlayerState): { d: number; align: number } | null {
+  let best: { d: number; align: number } | null = null;
+  for (const o of s.players) {
+    if (o.team === me.team) continue;
+    const dx = o.d.x - me.d.x;
+    const dy = o.d.y - me.d.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    const d = dist - me.d.r - o.d.r;
+    if (!best || d < best.d) best = { d, align: (dx * me.ax + dy * me.ay) / dist };
+  }
+  return best;
+}
+
 export function botInput(s: GameState, brain: BotBrain, rnd: () => number = Math.random): number {
   const me = s.players.find((p) => p.id === brain.id);
   if (!me) return 0;
@@ -116,6 +130,46 @@ export function botInput(s: GameState, brain: BotBrain, rnd: () => number = Math
       case 'superman':
         if (useQ(d < 3 * R && towardGoal)) bits |= IN.Q;
         else if (useE(isAttacker && d > 8 * R)) bits |= IN.E;
+        break;
+      // héroes desbloqueables: tiros rectos sólo bien alineados y hacia el arco rival
+      case 'hawkeye':
+        if (useQ(d < P.hawkeye.arrow.range * 0.85 && facing > 0.97 && towardGoal)) bits |= IN.Q;
+        else if (useE(isAttacker && d > 3 * R && d < 7 * R && facing > 0.9)) bits |= IN.E;
+        break;
+      case 'widow': {
+        const near = nearestRival(s, me);
+        if (useQ(near !== null && near.d < P.widow.shock.range * 0.8 && near.align > 0.9)) bits |= IN.Q;
+        else if (useE(near !== null && near.d < 3 * R)) bits |= IN.E;
+        break;
+      }
+      case 'cap':
+        if (useQ(d < P.cap.shield.range * 0.8 && facing > 0.95 && towardGoal)) bits |= IN.Q;
+        else if (useE(!isAttacker && d < 5 * R)) bits |= IN.E;
+        break;
+      case 'panther': {
+        const near = nearestRival(s, me);
+        if (useQ(isAttacker && d > 4 * R && d < 9 * R && facing > 0.95)) bits |= IN.Q;
+        else if (useE(near !== null && near.d < 2.5 * R)) bits |= IN.E;
+        break;
+      }
+      case 'ironman':
+        if (useQ(d < P.ironman.repulsor.range * 0.8 && facing > 0.97 && towardGoal)) bits |= IN.Q;
+        else if (useE(isAttacker && d > 6 * R && facing > 0.9)) bits |= IN.E;
+        break;
+      case 'flash':
+        if (useQ(isAttacker && d > 6 * R && facing > 0.9)) bits |= IN.Q;
+        else if (useE(!isAttacker && d < 6 * R)) bits |= IN.E;
+        break;
+      case 'thor': {
+        const near = nearestRival(s, me);
+        if (useQ(d < P.thor.hammer.range * 0.8 && facing > 0.95 && towardGoal)) bits |= IN.Q;
+        else if (useE(near !== null && near.d > 3 * R && near.d < 7 * R && near.align > 0.8)) bits |= IN.E;
+        break;
+      }
+      case 'strange':
+        // portal entre la pelota y el arco: la flecha apunta hacia donde se mueve el bot
+        if (useQ(d > 4 * R && d < 7 * R && facing > 0.9 && towardGoal)) bits |= IN.Q;
+        else if (useE(isAttacker && d > 4 * R && facing > 0.95)) bits |= IN.E;
         break;
     }
   }

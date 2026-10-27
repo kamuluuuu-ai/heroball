@@ -5,9 +5,9 @@ import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { TICK_MS } from '../shared/config';
-import { MAX_MESSAGE_BYTES, MAX_NICK, PROTOCOL_VERSION, ServerMsg, cleanText, parseClientMessage } from '../shared/protocol';
+import { MAX_MESSAGE_BYTES, ServerMsg } from '../shared/protocol';
 import { Client, Lobby } from './room';
-import { RateLimiter } from './rate';
+import { createHandler } from './handler';
 
 const PORT = Number(process.env.PORT ?? 3001);
 const HOST = process.env.HOST ?? '0.0.0.0';
@@ -70,90 +70,12 @@ wss.on('connection', (ws: WebSocket) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(typeof msg === 'string' ? msg : JSON.stringify(msg));
     },
   };
-  // límites de frecuencia por tipo de mensaje
-  const inputRate = new RateLimiter(90, 40);
-  const chatRate = new RateLimiter(1.5, 4);
-  const ctrlRate = new RateLimiter(8, 16);
-  let strikes = 0;
-  const reject = (msg?: string) => {
-    if (msg) client.send({ t: 'error', msg });
-    if (++strikes > 200) ws.close(1008, 'demasiados mensajes inválidos');
-  };
-
+  const h = createHandler(lobby, client, { onAbuse: () => ws.close(1008, 'demasiados mensajes inválidos') });
   ws.on('message', (data, isBinary) => {
-    if (isBinary) return reject();
-    const m = parseClientMessage(data.toString());
-    if (!m) return reject();
-    if (m.t === 'in') {
-      if (!inputRate.take()) return;
-      client.room?.pushInput(client.id, m.s, m.b);
-      return;
-    }
-    if (m.t === 'ping') {
-      if (m.r !== undefined) client.ping = m.r;
-      client.send({ t: 'pong', c: m.c });
-      return;
-    }
-    if (m.t === 'chat') {
-      if (!chatRate.take()) return reject('Estás enviando mensajes muy rápido.');
-      client.room?.chat(client.id, m.text);
-      return;
-    }
-    if (!ctrlRate.take()) return reject('Demasiadas acciones seguidas.');
-    if (m.t === 'hello') {
-      const nick = cleanText(m.nick, MAX_NICK);
-      if (!nick) return reject('Apodo inválido.');
-      client.nick = nick;
-      client.send({ t: 'welcome', id: client.id, v: PROTOCOL_VERSION });
-      return;
-    }
-    if (!client.nick) return reject('Primero elegí un apodo.');
-    const room = client.room;
-    let err: string | null = null;
-    switch (m.t) {
-      case 'list':
-        client.send({ t: 'rooms', rooms: lobby.list() });
-        return;
-      case 'create': {
-        room?.leave(client.id);
-        const r = lobby.create(m.name, m.settings);
-        err = r.join(client);
-        break;
-      }
-      case 'join': {
-        const r = lobby.rooms.get(m.room);
-        if (!r) return reject('La sala no existe o ya se cerró.');
-        if (r === room) return;
-        room?.leave(client.id);
-        err = r.join(client);
-        break;
-      }
-      case 'leave':
-        room?.leave(client.id);
-        client.send({ t: 'left' });
-        return;
-    }
-    if (!room) {
-      if (err) reject(err);
-      return;
-    }
-    switch (m.t) {
-      case 'side': err = room.setSide(client.id, m.side, m.target); break;
-      case 'hero': room.setHero(client.id, m.hero); break;
-      case 'settings': err = room.setSettings(client.id, m.settings); break;
-      case 'start': err = room.start(client.id); break;
-      case 'stop': err = room.stop(client.id); break;
-      case 'pause': err = room.pause(client.id); break;
-      case 'restart': err = room.restart(client.id); break;
-      case 'addbot': err = room.addBot(client.id, m.side); break;
-      case 'kick': err = room.kickMember(client.id, m.target); break;
-    }
-    if (err) reject(err);
+    if (isBinary) return;
+    h.onMessage(data.toString());
   });
-
-  ws.on('close', () => {
-    client.room?.leave(client.id);
-  });
+  ws.on('close', h.onClose);
 });
 
 // Bucle de simulación de paso fijo con acumulador (independiente de la

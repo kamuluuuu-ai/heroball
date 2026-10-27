@@ -5,6 +5,22 @@ Proyecto independiente **inspirado en HaxBall**; no es HaxBall ni su sitio ofici
 
 ![Partido en línea](docs/partido-online.jpg)
 
+## Jugar en línea
+
+**https://kamuluuuu-ai.github.io/heroball/**
+
+La versión web no tiene servidor central: quien toca *Crear sala* aloja la partida en su navegador
+(corre la simulación autoritativa, igual que el servidor Node) y los demás entran con el enlace de invitación,
+conectados por WebRTC. La señalización usa el servicio público gratuito de [PeerJS](https://peerjs.com)
+(peerjs.com), que también ofrece STUN/TURN. Limitaciones de este modo:
+
+- No hay lista pública de salas: se entra por enlace o código.
+- Si el anfitrión cierra o minimiza mucho tiempo la pestaña, la sala termina para todos.
+- Algunas redes muy restrictivas pueden bloquear WebRTC; ahí no se podrá conectar.
+- Entrenamiento y partidos contra bots funcionan sin conexión, igual que siempre.
+
+El sitio se publica solo con GitHub Actions (`.github/workflows/pages.yml`) en cada push a `main`.
+
 ## Ejecutar
 
 Requiere Node.js 20 o superior (probado con Node 24).
@@ -23,7 +39,7 @@ npm run build      # comprobación de tipos + build del cliente en dist/
 npm start          # http://localhost:3001  (WebSocket en /ws)
 ```
 
-Otros comandos: `npm test` (Vitest), `npm run typecheck`.
+Otros comandos: `npm test` (Vitest), `npm run typecheck`, `npm run build:pages` (versión web sin servidor en `dist-pages/`; usa `VITE_BASE=/heroball/` para la ruta de GitHub Pages).
 
 Variables: `PORT` (por defecto 3001) y `HOST` (por defecto `0.0.0.0`).
 
@@ -93,8 +109,9 @@ shared/      motor común cliente/servidor (TypeScript puro, sin DOM)
   protocol.ts  mensajes y validación
   types.ts     estado del juego y bits de entrada
 server/      Node + ws: sirve dist/ y /ws; salas en memoria; bucle autoritativo a 60 Hz
+  handler.ts   manejo de mensajes (compartido con el anfitrión en navegador)
 client/src/
-  game/        render Canvas 2D, entrada (teclado/táctil), red, sesiones (local/red), audio
+  game/        render Canvas 2D, entrada (teclado/táctil), red y transportes (WebSocket / WebRTC), sesiones, audio
   ui/          React: menús, sala, HUD (el HUD se escribe directo en el DOM, no por fotograma en React)
 tests/       Vitest: física, poderes, servidor/salas, estabilidad con bots
 ```

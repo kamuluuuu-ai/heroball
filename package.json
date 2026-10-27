@@ -10,9 +10,11 @@
     "build": "tsc -p tsconfig.json --noEmit && vite build",
     "start": "tsx server/index.ts",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build:pages": "vite build --mode pages --outDir ../dist-pages"
   },
   "dependencies": {
+    "peerjs": "1.5.5",
     "tsx": "^4.19.2",
     "ws": "^8.18.0"
   },

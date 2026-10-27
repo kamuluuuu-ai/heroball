@@ -1,7 +1,9 @@
-// Conexión WebSocket con el servidor. Los snapshots van directo a la sesión
-// de juego (sin pasar por React); la interfaz sólo escucha sala, chat y estado.
-import { PROTOCOL_VERSION, type ClientMsg, type RoomInfo, type RoomSummary, type ServerMsg } from '../../../shared/protocol';
+// Conexión con la sala (servidor Node por WebSocket, o anfitrión en navegador
+// por WebRTC). Los snapshots van directo a la sesión de juego (sin pasar por
+// React); la interfaz sólo escucha sala, chat y estado.
+import { PROTOCOL_VERSION, type ClientMsg, type RoomInfo, type RoomSettings, type RoomSummary, type ServerMsg } from '../../../shared/protocol';
 import type { GameEvent, GameState, Side } from '../../../shared/types';
+import { BrowserHost, P2P, peerGuestTransport, wsTransport, type Transport } from './transport';
 
 export type ConnStatus = 'connecting' | 'open' | 'closed';
 
@@ -23,7 +25,10 @@ export interface SnapshotSink {
 let chatId = 0;
 
 export class NetClient {
-  ws: WebSocket | null = null;
+  /** true en el build web: sin servidor central, salas alojadas en el navegador. */
+  readonly p2p = P2P;
+  private transport: Transport | null = null;
+  private host: BrowserHost | null = null;
   status: ConnStatus = 'closed';
   id = '';
   nick = '';
@@ -37,7 +42,9 @@ export class NetClient {
   sink: SnapshotSink | null = null;
   private listeners = new Set<Listener>();
   private pingTimer = 0;
+  private lastMsgAt = 0;
   private pendingJoin: string | null = null;
+  private pendingCreate: { name: string; settings: Partial<RoomSettings> } | null = null;
 
   subscribe(fn: Listener): () => void {
     this.listeners.add(fn);
@@ -48,56 +55,136 @@ export class NetClient {
     for (const fn of this.listeners) fn();
   }
 
+  /** ¿Está conectado a una sala o servidor (no sólo en el lobby web)? */
+  get linked(): boolean {
+    return this.transport !== null;
+  }
+
   connect(nick: string, joinRoom?: string): void {
     this.nick = nick;
-    this.pendingJoin = joinRoom ?? null;
-    if (this.ws && this.status !== 'closed') {
+    if (this.transport && this.status !== 'closed') {
       this.send({ t: 'hello', nick, v: PROTOCOL_VERSION });
+      if (joinRoom) this.send({ t: 'join', room: joinRoom });
       return;
     }
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${proto}://${location.host}/ws`);
-    this.ws = ws;
+    if (this.p2p) {
+      if (joinRoom) {
+        this.pendingJoin = joinRoom;
+        this.attach(peerGuestTransport(joinRoom));
+      } else {
+        // lobby web: sin servidor al que conectarse todavía
+        this.status = 'open';
+        this.rooms = [];
+        this.emit();
+      }
+      return;
+    }
+    this.pendingJoin = joinRoom ?? null;
+    this.attach(wsTransport());
+  }
+
+  private attach(t: Transport): void {
+    this.transport = t;
     this.status = 'connecting';
     this.emit();
-    ws.onopen = () => {
+    t.onopen = () => {
       this.status = 'open';
       this.error = null;
-      this.send({ t: 'hello', nick, v: PROTOCOL_VERSION });
-      this.pingTimer = window.setInterval(() => this.send({ t: 'ping', c: performance.now(), r: Math.round(this.ping) }), 2000);
-      this.emit();
-    };
-    ws.onclose = () => {
-      this.status = 'closed';
-      this.room = null;
+      this.ping = 0;
+      this.send({ t: 'hello', nick: this.nick, v: PROTOCOL_VERSION });
       window.clearInterval(this.pingTimer);
-      this.sink?.onNoGame();
+      this.lastMsgAt = performance.now();
+      this.pingTimer = window.setInterval(() => {
+        // modo web: si el anfitrión desapareció sin avisar, volver al lobby
+        if (this.p2p && !this.host && performance.now() - this.lastMsgAt > 8000) {
+          t.onclose('Se perdió la conexión con el anfitrión.');
+          t.close();
+          return;
+        }
+        this.send({ t: 'ping', c: performance.now(), r: Math.round(this.ping) });
+      }, 2000);
       this.emit();
     };
-    ws.onerror = () => {
-      this.error = 'No se pudo conectar con el servidor.';
+    t.onclose = (reason) => {
+      if (this.transport !== t) return;
+      this.detach();
+      if (reason) this.error = reason;
       this.emit();
     };
-    ws.onmessage = (ev) => {
-      const data = ev.data as string;
+    t.onmessage = (data) => {
       if (this.fakeLag > 0) setTimeout(() => this.handle(data), this.fakeLag);
       else this.handle(data);
     };
   }
 
+  private detach(): void {
+    window.clearInterval(this.pingTimer);
+    this.transport = null;
+    this.host = null;
+    this.room = null;
+    this.sink?.onNoGame();
+    // en modo web el lobby sigue disponible sin conexión
+    this.status = this.p2p ? 'open' : 'closed';
+    if (this.p2p) this.rooms = [];
+  }
+
+  /** Crear sala: en el servidor, o alojándola en este navegador (modo web). */
+  createRoom(name: string, settings: Partial<RoomSettings>): void {
+    if (!this.p2p) {
+      this.send({ t: 'create', name, settings });
+      return;
+    }
+    this.status = 'connecting';
+    this.error = null;
+    this.emit();
+    BrowserHost.start()
+      .then((host) => {
+        this.host = host;
+        this.pendingCreate = { name, settings };
+        this.attach(host.localTransport());
+      })
+      .catch((e: Error) => {
+        this.status = 'open';
+        this.error = e.message;
+        this.emit();
+      });
+  }
+
+  leaveRoom(): void {
+    if (!this.p2p) {
+      this.send({ t: 'leave' });
+      return;
+    }
+    // modo web: el anfitrión cierra la sala para todos; un invitado sólo se va
+    const t = this.transport;
+    this.detach();
+    t?.close();
+    this.emit();
+  }
+
+  /** En modo web, la sala termina si se cierra la pestaña del anfitrión. */
+  get isBrowserHost(): boolean {
+    return this.host !== null;
+  }
+
   disconnect(): void {
-    this.ws?.close();
+    const t = this.transport;
+    this.detach();
+    t?.close();
+    this.status = 'closed';
+    this.emit();
   }
 
   send(m: ClientMsg): void {
-    const ws = this.ws;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const t = this.transport;
+    if (!t || this.status !== 'open') return;
     const raw = JSON.stringify(m);
-    if (this.fakeLag > 0) setTimeout(() => ws.readyState === WebSocket.OPEN && ws.send(raw), this.fakeLag);
-    else ws.send(raw);
+    if (this.fakeLag > 0) setTimeout(() => this.transport === t && t.send(raw), this.fakeLag);
+    else t.send(raw);
   }
 
   private handle(data: string): void {
+    this.lastMsgAt = performance.now();
     let m: ServerMsg;
     try {
       m = JSON.parse(data);
@@ -107,10 +194,14 @@ export class NetClient {
     switch (m.t) {
       case 'welcome':
         this.id = m.id;
-        this.send({ t: 'list' });
+        if (!this.p2p) this.send({ t: 'list' });
         if (this.pendingJoin) {
           this.send({ t: 'join', room: this.pendingJoin });
           this.pendingJoin = null;
+        }
+        if (this.pendingCreate) {
+          this.send({ t: 'create', ...this.pendingCreate });
+          this.pendingCreate = null;
         }
         break;
       case 'rooms':
@@ -122,10 +213,16 @@ export class NetClient {
         this.error = null;
         break;
       case 'left':
-        this.room = null;
-        this.sink?.onNoGame();
+        if (this.p2p) {
+          const t = this.transport;
+          this.detach();
+          t?.close();
+        } else {
+          this.room = null;
+          this.sink?.onNoGame();
+          this.send({ t: 'list' });
+        }
         if (m.reason) this.error = m.reason;
-        this.send({ t: 'list' });
         break;
       case 'chat':
         this.chat = [...this.chat.slice(-80), { id: ++chatId, from: m.from, nick: m.nick, text: m.text, team: m.team }];

@@ -80,7 +80,8 @@ export function App() {
         />
       );
     case 'online':
-      return <OnlineRoom prefs={prefs} setPrefs={setPrefs} />;
+      // al salir, la sala desaparece antes de volver al lobby
+      return n.room ? <OnlineRoom prefs={prefs} setPrefs={setPrefs} /> : null;
     case 'offline':
       return <OfflineGame prefs={prefs} setPrefs={setPrefs} opts={screen.opts} onExit={() => setScreen({ k: 'lobby' })} />;
   }
@@ -145,8 +146,9 @@ function Lobby({ prefs, setPrefs, onChangeNick, onOffline }: {
             <span>Nombre</span><span>Jugadores</span><span>Modo</span><span>Estado</span>
           </div>
           <div className="room-list">
-            {n.status !== 'open' && <div className="empty">{n.status === 'connecting' ? 'Conectando con el servidor…' : 'Sin conexión con el servidor. Podés jugar sin conexión (entrenamiento o contra bots).'}</div>}
-            {n.status === 'open' && n.rooms?.length === 0 && <div className="empty">No hay salas abiertas. Creá una e invitá a alguien con el enlace.</div>}
+            {n.status !== 'open' && <div className="empty">{n.status === 'connecting' ? (n.p2p ? 'Conectando con la sala…' : 'Conectando con el servidor…') : 'Sin conexión con el servidor. Podés jugar sin conexión (entrenamiento o contra bots).'}</div>}
+            {n.status === 'open' && n.p2p && <WebModeHelp />}
+            {n.status === 'open' && !n.p2p && n.rooms?.length === 0 && <div className="empty">No hay salas abiertas. Creá una e invitá a alguien con el enlace.</div>}
             {n.status === 'open' && n.rooms?.map((r) => (
               <div key={r.id} className="room-row" onDoubleClick={() => n.send({ t: 'join', room: r.id })} onClick={() => n.send({ t: 'join', room: r.id })}>
                 <span className="rname">{r.name}</span>
@@ -159,7 +161,7 @@ function Lobby({ prefs, setPrefs, onChangeNick, onOffline }: {
         </div>
         {n.error && <div className="error">{n.error}</div>}
         <div className="btn-row">
-          <button onClick={() => n.send({ t: 'list' })} disabled={n.status !== 'open'}>Actualizar</button>
+          {!n.p2p && <button onClick={() => n.send({ t: 'list' })} disabled={n.status !== 'open'}>Actualizar</button>}
           <button onClick={() => setCreating(true)} disabled={n.status !== 'open'}>Crear sala</button>
           {n.status === 'closed' && <button onClick={() => n.connect(prefs.nick)}>Reconectar</button>}
           <span className="grow" />
@@ -174,8 +176,30 @@ function Lobby({ prefs, setPrefs, onChangeNick, onOffline }: {
   );
 }
 
+function WebModeHelp() {
+  const n = useNet();
+  const [code, setCode] = useState('');
+  const join = () => {
+    // acepta el enlace completo o sólo el código de sala
+    const m = code.trim().match(/[?&]sala=([a-z0-9]+)/i);
+    const id = (m ? m[1] : code.trim()).toLowerCase();
+    if (/^[a-z0-9]{4,16}$/.test(id)) n.connect(n.nick, id);
+  };
+  return (
+    <div className="empty web-help">
+      <p>Versión web: no hay servidor central ni lista pública de salas.</p>
+      <p><b>Crear sala</b> la aloja en tu navegador; compartí el enlace de invitación para que entren otros.</p>
+      <form className="join-code" onSubmit={(e) => { e.preventDefault(); join(); }}>
+        <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="Pegá un enlace o código de sala" />
+        <button type="submit" disabled={!code.trim()}>Unirse</button>
+      </form>
+    </div>
+  );
+}
+
 function ConnBadge() {
   const n = useNet();
+  if (n.p2p && !n.linked && n.status === 'open') return <span className="conn open">● Modo web (sin servidor)</span>;
   const label = n.status === 'open' ? `Conectado · ${Math.round(n.ping)} ms` : n.status === 'connecting' ? 'Conectando…' : 'Desconectado';
   return <span className={`conn ${n.status}`}>● {label}</span>;
 }
@@ -223,7 +247,7 @@ function CreateRoom({ onCancel, nick }: { onCancel: () => void; nick: string }) 
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            n.send({ t: 'create', name: name.trim() || 'Sala HeroBall', settings: s });
+            n.createRoom(name.trim() || 'Sala HeroBall', s);
           }}
         >
           <label className="block">Nombre
@@ -402,6 +426,7 @@ function RoomPanel({ room, prefs, setPrefs, onClose }: { room: RoomInfo; prefs: 
         <div className="room-right">
           <SettingsFields s={room.settings} disabled={!isHost || room.playing} onChange={(s) => n.send({ t: 'settings', settings: s })} />
           {!isHost && <p className="muted small">Sólo el anfitrión cambia la configuración e inicia el partido.</p>}
+          {n.isBrowserHost && <p className="muted small">La sala corre en tu navegador: si cerrás esta pestaña, termina para todos. Dejala visible mientras se juega.</p>}
           {isHost && (
             <div className="btn-row">
               {!room.playing && <button className="primary" onClick={() => n.send({ t: 'start' })}>Iniciar partido</button>}
@@ -412,7 +437,7 @@ function RoomPanel({ room, prefs, setPrefs, onClose }: { room: RoomInfo; prefs: 
           )}
           {n.error && <div className="error">{n.error}</div>}
           <div className="btn-row">
-            <button onClick={() => n.send({ t: 'leave' })}>Salir de la sala</button>
+            <button onClick={() => n.leaveRoom()}>{n.isBrowserHost ? 'Cerrar la sala' : 'Salir de la sala'}</button>
             <button onClick={() => setShowSettings(!showSettings)}>Ajustes</button>
           </div>
           {showSettings && <SettingsPanel prefs={prefs} setPrefs={setPrefs} />}

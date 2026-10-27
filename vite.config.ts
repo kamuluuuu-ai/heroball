@@ -5,6 +5,8 @@ const SERVER_PORT = Number(process.env.PORT ?? 3001);
 
 export default defineConfig({
   root: 'client',
+  // GitHub Pages sirve el sitio en /<repo>/
+  base: process.env.VITE_BASE ?? '/',
   plugins: [react()],
   server: {
     port: 5173,

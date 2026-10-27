@@ -297,3 +297,7 @@ button.mini.wide { margin: 4px; }
     pointer-events: none;
   }
 }
+.web-help { padding: 18px 12px; }
+.web-help p { margin: 0 0 8px; }
+.join-code { display: flex; gap: 6px; max-width: 420px; margin: 10px auto 0; }
+.join-code input { flex: 1; }

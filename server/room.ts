@@ -47,8 +47,8 @@ export class Room {
   private events: GameEvent[] = [];
   private onEmpty: (r: Room) => void;
 
-  constructor(name: string, settings: Partial<RoomSettings>, onEmpty: (r: Room) => void) {
-    this.id = (++roomCounter).toString(36) + Math.random().toString(36).slice(2, 6);
+  constructor(name: string, settings: Partial<RoomSettings>, onEmpty: (r: Room) => void, id?: string) {
+    this.id = id ?? (++roomCounter).toString(36) + Math.random().toString(36).slice(2, 6);
     this.name = cleanText(name, MAX_ROOM_NAME) || 'Sala HeroBall';
     this.settings = { ...DEFAULT_SETTINGS, ...settings };
     this.onEmpty = onEmpty;
@@ -323,8 +323,8 @@ export class Room {
 export class Lobby {
   rooms = new Map<string, Room>();
 
-  create(name: string, settings: Partial<RoomSettings>): Room {
-    const r = new Room(name, settings, (room) => this.rooms.delete(room.id));
+  create(name: string, settings: Partial<RoomSettings>, id?: string): Room {
+    const r = new Room(name, settings, (room) => this.rooms.delete(room.id), id);
     this.rooms.set(r.id, r);
     return r;
   }

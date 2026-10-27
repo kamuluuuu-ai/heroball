@@ -1,0 +1,99 @@
+// Manejo de mensajes de un cliente conectado. Sin dependencias de Node: lo usa
+// el servidor WebSocket y también el navegador anfitrión en modo WebRTC.
+import { MAX_NICK, PROTOCOL_VERSION, cleanText, parseClientMessage } from '../shared/protocol';
+import { RateLimiter } from './rate';
+import type { Client, Lobby } from './room';
+
+export interface HandlerOptions {
+  /** Sólo para el modo anfitrión en navegador: una única sala con id fijo. */
+  singleRoomId?: string;
+  onAbuse?: () => void;
+}
+
+export function createHandler(lobby: Lobby, client: Client, opts: HandlerOptions = {}) {
+  // límites de frecuencia por tipo de mensaje
+  const inputRate = new RateLimiter(90, 40);
+  const chatRate = new RateLimiter(1.5, 4);
+  const ctrlRate = new RateLimiter(8, 16);
+  let strikes = 0;
+  const reject = (msg?: string) => {
+    if (msg) client.send({ t: 'error', msg });
+    if (++strikes > 200) opts.onAbuse?.();
+  };
+
+  const onMessage = (raw: string) => {
+    const m = parseClientMessage(raw);
+    if (!m) return reject();
+    if (m.t === 'in') {
+      if (!inputRate.take()) return;
+      client.room?.pushInput(client.id, m.s, m.b);
+      return;
+    }
+    if (m.t === 'ping') {
+      if (m.r !== undefined) client.ping = m.r;
+      client.send({ t: 'pong', c: m.c });
+      return;
+    }
+    if (m.t === 'chat') {
+      if (!chatRate.take()) return reject('Estás enviando mensajes muy rápido.');
+      client.room?.chat(client.id, m.text);
+      return;
+    }
+    if (!ctrlRate.take()) return reject('Demasiadas acciones seguidas.');
+    if (m.t === 'hello') {
+      const nick = cleanText(m.nick, MAX_NICK);
+      if (!nick) return reject('Apodo inválido.');
+      client.nick = nick;
+      client.send({ t: 'welcome', id: client.id, v: PROTOCOL_VERSION });
+      return;
+    }
+    if (!client.nick) return reject('Primero elegí un apodo.');
+    const room = client.room;
+    let err: string | null = null;
+    switch (m.t) {
+      case 'list':
+        client.send({ t: 'rooms', rooms: lobby.list() });
+        return;
+      case 'create': {
+        if (opts.singleRoomId && lobby.rooms.size > 0) return reject('Ya hay una sala en este anfitrión.');
+        room?.leave(client.id);
+        const r = lobby.create(m.name, m.settings, opts.singleRoomId);
+        err = r.join(client);
+        break;
+      }
+      case 'join': {
+        const r = lobby.rooms.get(m.room);
+        if (!r) return reject('La sala no existe o ya se cerró.');
+        if (r === room) return;
+        room?.leave(client.id);
+        err = r.join(client);
+        break;
+      }
+      case 'leave':
+        room?.leave(client.id);
+        client.send({ t: 'left' });
+        return;
+    }
+    if (!room) {
+      if (err) reject(err);
+      return;
+    }
+    switch (m.t) {
+      case 'side': err = room.setSide(client.id, m.side, m.target); break;
+      case 'hero': room.setHero(client.id, m.hero); break;
+      case 'settings': err = room.setSettings(client.id, m.settings); break;
+      case 'start': err = room.start(client.id); break;
+      case 'stop': err = room.stop(client.id); break;
+      case 'pause': err = room.pause(client.id); break;
+      case 'restart': err = room.restart(client.id); break;
+      case 'addbot': err = room.addBot(client.id, m.side); break;
+      case 'kick': err = room.kickMember(client.id, m.target); break;
+    }
+    if (err) reject(err);
+  };
+
+  return {
+    onMessage,
+    onClose: () => client.room?.leave(client.id),
+  };
+}

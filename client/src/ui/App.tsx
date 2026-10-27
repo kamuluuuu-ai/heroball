@@ -255,7 +255,7 @@ function PlayTab({ prefs, setPrefs, nick, onOffline, onLogin, onHeroes }: {
 }) {
   const n = useNet();
   const acc = useAccount();
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState<false | 'normal' | 'specials'>(false);
   const [offline, setOffline] = useState<null | 'training' | 'bots'>(null);
   const [showSettings, setShowSettings] = useState(false);
 
@@ -264,7 +264,8 @@ function PlayTab({ prefs, setPrefs, nick, onOffline, onLogin, onHeroes }: {
     return () => window.clearInterval(t);
   }, [n]);
 
-  if (creating) return <CreateRoom onCancel={() => setCreating(false)} nick={nick} />;
+  if (creating) return <CreateRoom onCancel={() => setCreating(false)} nick={nick} specials={creating === 'specials'} />;
+  const specialsAvailable = n.canSpecialServer || (n.officialServer && !n.p2p);
   if (offline) return <OfflineSetup kind={offline} prefs={prefs} setPrefs={setPrefs} onCancel={() => setOffline(null)} onStart={onOffline} />;
 
   const signed = acc.status === 'signed';
@@ -290,8 +291,16 @@ function PlayTab({ prefs, setPrefs, nick, onOffline, onLogin, onHeroes }: {
         <div className="play-card">
           <b>Multijugador</b>
           <span className="small muted">{n.p2p ? 'Sala alojada en tu navegador; invitá con un enlace. Siempre casual.' : 'Salas en el servidor. Las oficiales dan recompensas a cuentas.'}</span>
-          <button className="primary" onClick={() => setCreating(true)} disabled={n.status !== 'open' || !nick}>Crear sala</button>
+          <button className="primary" onClick={() => setCreating('normal')} disabled={n.status !== 'open' || !nick}>Crear sala</button>
         </div>
+        {specialsAvailable && (
+          <div className="play-card">
+            <b>Personajes especiales</b>
+            <span className="small muted">Sala en el servidor donde quien tenga un personaje especial (como Thanos) lo puede usar. Casual, sin recompensas.</span>
+            <button className="primary" onClick={() => setCreating('specials')} disabled={n.status !== 'open' || !nick}>Crear sala especial</button>
+            {acc.status !== 'signed' && <span className="small muted">Entrá con tu cuenta para usar tus personajes especiales.</span>}
+          </div>
+        )}
       </div>
       <details className="modes">
         <summary>¿Qué son los modos Héroes, Súper y Clásico?</summary>
@@ -446,10 +455,10 @@ function SettingsFields({ s, onChange, disabled, playing }: { s: RoomSettings; o
   );
 }
 
-function CreateRoom({ onCancel, nick }: { onCancel: () => void; nick: string }) {
+function CreateRoom({ onCancel, nick, specials = false }: { onCancel: () => void; nick: string; specials?: boolean }) {
   const n = useNet();
-  const [name, setName] = useState(`Sala de ${nick}`);
-  const [s, setS] = useState<RoomSettings>({ ...DEFAULT_SETTINGS });
+  const [name, setName] = useState(specials ? `Sala especial de ${nick}` : `Sala de ${nick}`);
+  const [s, setS] = useState<RoomSettings>({ ...DEFAULT_SETTINGS, ...(specials ? { specials: true, official: false } : {}) });
   return (
     <div>
       <h2>Crear sala</h2>

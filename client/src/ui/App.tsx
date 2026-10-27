@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { HEROES, type HeroId } from '../../../shared/config';
+import { HEROES, SECRET_IDS, type HeroId } from '../../../shared/config';
 import { ECONOMY } from '../../../shared/economy';
 import { DEFAULT_SETTINGS, MAX_NICK, MAX_ROOM_NAME, type RoomInfo, type RoomMember, type RoomSettings } from '../../../shared/protocol';
 import type { GameMode, Side, Team } from '../../../shared/types';
@@ -318,7 +318,7 @@ function PlayTab({ prefs, setPrefs, nick, onOffline, onLogin, onHeroes }: {
                 <button key={r.id} className="room-row" onClick={() => n.send({ t: 'join', room: r.id })} aria-label={`Entrar a ${r.name}`}>
                   <span className="rname">{r.name}</span>
                   <span>{r.players}/{r.maxPlayers}</span>
-                  <span>{MODE_LABEL[r.mode]} {r.teamSize}v{r.teamSize}{r.cooldowns === 'none' && r.mode !== 'classic' ? ' · sin cooldowns' : ''}{r.playing ? ' · en juego' : ''}</span>
+                  <span>{MODE_LABEL[r.mode]} {r.teamSize}v{r.teamSize}{r.cooldowns === 'none' && r.mode !== 'classic' ? ' · sin cooldowns' : ''}{r.specials ? ' · personajes especiales' : ''}{r.playing ? ' · en juego' : ''}</span>
                   <span>{r.official ? <span className="tag official">Oficial</span> : <span className="tag">Casual</span>}</span>
                 </button>
               ))}
@@ -366,6 +366,11 @@ function ConnBadge() {
 }
 
 /** Etiqueta visible de partidas sin cooldowns (en sala y en partido). */
+/** Sala con personajes especiales: casual y sin recompensas, a la vista de todos. */
+function SpecialsTag({ on }: { on: boolean }) {
+  return on ? <span className="tag specials" title="Se permiten personajes especiales (Thanos). No da recompensas.">Personajes especiales: sin recompensas</span> : null;
+}
+
 function NoCdTag({ on }: { on: boolean }) {
   return on ? <span className="tag nocd" title="Sin espera de recarga. Partida casual: sin recompensas ni clasificación.">Sin cooldowns</span> : null;
 }
@@ -386,7 +391,7 @@ function CooldownsField({ mode, value, onChange, disabled }: { mode: GameMode; v
 
 function SettingsFields({ s, onChange, disabled, playing }: { s: RoomSettings; onChange: (p: Partial<RoomSettings>) => void; disabled?: boolean; playing?: boolean }) {
   const n = useNet();
-  const canOfficial = n.officialServer && !n.p2p && s.mode !== 'super' && s.cooldowns !== 'none';
+  const canOfficial = n.officialServer && !n.p2p && s.mode !== 'super' && s.cooldowns !== 'none' && !s.specials;
   return (
     <div className="fields">
       <label>Modo
@@ -421,6 +426,11 @@ function SettingsFields({ s, onChange, disabled, playing }: { s: RoomSettings; o
       {n.officialServer && !n.p2p && (
         <label className="check" title={canOfficial ? 'Cuenta para recompensas: sólo jugadores con cuenta, sin bots' : 'El modo Súper y las partidas sin cooldowns no pueden ser oficiales'}>
           <span><input type="checkbox" disabled={disabled || playing || !canOfficial} checked={s.official && canOfficial} onChange={(e) => onChange({ official: e.target.checked })} /> Oficial (recompensas)</span>
+        </label>
+      )}
+      {n.officialServer && !n.p2p && s.mode !== 'classic' && (
+        <label className="check" title="Permite personajes especiales (Thanos) a quien los tenga en su colección. La sala queda casual y sin recompensas.">
+          <span><input type="checkbox" disabled={disabled || playing} checked={!!s.specials} onChange={(e) => onChange({ specials: e.target.checked, ...(e.target.checked ? { official: false } : {}) })} /> Personajes especiales (sin recompensas)</span>
         </label>
       )}
     </div>
@@ -543,7 +553,7 @@ function OnlineRoom({ prefs, setPrefs }: { prefs: Prefs; setPrefs: (p: Prefs) =>
       chat={room.playing && !open ? { lines: n.chat, send: (text) => n.send({ t: 'chat', text }) } : undefined}
       menuOpen={open}
       onToggleMenu={() => setMenu((v) => !v)}
-      status={<>{room.settings.official ? <span className="tag official">Oficial</span> : <span className="tag">Casual</span>}<NoCdTag on={room.settings.cooldowns === 'none' && room.settings.mode !== 'classic'} /><ConnBadge /></>}
+      status={<>{room.settings.official ? <span className="tag official">Oficial</span> : <span className="tag">Casual</span>}<NoCdTag on={room.settings.cooldowns === 'none' && room.settings.mode !== 'classic'} /><SpecialsTag on={!!room.settings.specials} /><ConnBadge /></>}
       idle={null}
       menu={<RoomPanel room={room} prefs={prefs} setPrefs={setPrefs} onClose={room.playing ? () => setMenu(false) : undefined} />}
     />
@@ -627,6 +637,7 @@ function RoomPanel({ room, prefs, setPrefs, onClose }: { room: RoomInfo; prefs: 
         {room.name}
         {official ? <span className="tag official">Oficial</span> : <span className="tag">Casual</span>}
         <NoCdTag on={room.settings.cooldowns === 'none' && room.settings.mode !== 'classic'} />
+        <SpecialsTag on={!!room.settings.specials} />
         <span className="grow" />
         {onClose && <button className="mini" onClick={onClose}>Volver al partido (Esc)</button>}
       </h1>
@@ -645,7 +656,7 @@ function RoomPanel({ room, prefs, setPrefs, onClose }: { room: RoomInfo; prefs: 
           <OfficialRules />
         </div>
       ) : (
-        <p className="muted small">Partida casual: cualquier héroe, con bots si querés. No da recompensas.</p>
+        <p className="muted small">Partida casual: cualquier héroe, con bots si querés. No da recompensas.{room.settings.specials ? ' Personajes especiales activados: quien tenga uno en su colección lo puede usar.' : ''}</p>
       )}
       <div className="teams">
         {col('red', 'Rojo')}
@@ -660,6 +671,7 @@ function RoomPanel({ room, prefs, setPrefs, onClose }: { room: RoomInfo; prefs: 
               value={me?.hero ?? prefs.hero}
               team={me?.side}
               locked={official ? (h) => !owned.has(h) : undefined}
+              secrets={room.settings.specials && n.account ? SECRET_IDS.filter((h) => owned.has(h)) : []}
               onChange={(hero: HeroId) => {
                 setPrefs({ ...prefs, hero });
                 n.send({ t: 'hero', hero });
@@ -763,7 +775,8 @@ function OfflineGame({ prefs, setPrefs, nick, opts, onExit }: { prefs: Prefs; se
     const m = new Map<string, string>([['me', nick || 'Vos']]);
     for (const b of session.brains) m.set(b.id, `${HEROES[session.state.players.find((p) => p.id === b.id)?.hero ?? 'spider'].name} [BOT]`);
     return m;
-  }, [session, nick]);
+  // el estado se reemplaza al reiniciar (Revancha): los bots pueden cambiar de héroe
+  }, [session, nick, session.state]);
   return (
     <GameView
       session={session}

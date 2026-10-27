@@ -186,6 +186,80 @@ canvas.field { position: absolute; inset: 0; width: 100%; height: 100%; display:
 .pslot .pfill { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.55); }
 .pslot .pkey { position: absolute; left: 2px; top: 0; font-size: 10px; font-weight: 700; color: #fff; text-shadow: 0 0 2px #000; }
 .pslot .pcd { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; text-shadow: 0 0 3px #000; }
+.pslot .pammo { position: absolute; left: 0; right: 0; bottom: 0; text-align: center; font-size: 10px; letter-spacing: 1px; color: #ffd23f; text-shadow: 0 0 2px #000; }
+
+/* Gemas de Thanos: tecla, nombre, objetivo, estado y recarga; tocar una la elige. */
+.gembar {
+  position: absolute;
+  left: 50%;
+  bottom: 92px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 4px;
+}
+.gem {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 64px;
+  padding: 3px 2px;
+  background: rgba(17, 22, 25, 0.82);
+  border: 2px solid #3c4a52;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 10px;
+  line-height: 1.15;
+  touch-action: none;
+}
+.gem canvas { width: 26px; height: 26px; opacity: 0.5; }
+.gem.ready canvas { opacity: 1; }
+.gem.sel { border-color: #ffd23f; box-shadow: 0 0 8px #ffd23f; }
+.gem .gkey { position: absolute; left: 3px; top: 1px; font-weight: 700; }
+.gem .gcd { position: absolute; right: 3px; top: 1px; color: #ffb3a3; font-weight: 700; }
+.gem .gname { font-weight: 700; }
+.gem .gtarget { color: #cfd6da; }
+.gem .gstate { color: #cfd6da; }
+.gem.ready .gstate { color: #9be36b; }
+
+/* Quiz de Baldi: sólo lo ve el jugador afectado. */
+.quiz {
+  position: absolute;
+  left: 50%;
+  top: 18%;
+  transform: translateX(-50%);
+  width: min(420px, 92%);
+  padding: 12px 14px;
+  background: rgba(14, 40, 22, 0.94);
+  border: 3px solid #f2f2e6;
+  border-radius: 8px;
+  color: #fff;
+  text-align: center;
+  z-index: 5;
+}
+.quiz-by { font-size: 13px; color: #cfe8d2; }
+.quiz-q { font-size: 34px; font-weight: 800; margin: 6px 0 10px; font-family: 'Comic Sans MS', 'Comic Neue', cursive; }
+.quiz-opts { display: flex; gap: 8px; justify-content: center; }
+.quiz-opt {
+  position: relative;
+  flex: 1;
+  min-height: 56px;
+  font-size: 24px;
+  font-weight: 700;
+  background: #f2f2e6;
+  color: #12301b;
+  border: 0;
+  border-radius: 6px;
+  touch-action: none;
+}
+.quiz-opt .qk { position: absolute; left: 6px; top: 3px; font-size: 11px; color: #4a6b52; }
+.quiz-bar { height: 6px; margin-top: 10px; background: rgba(255, 255, 255, 0.2); border-radius: 3px; overflow: hidden; }
+.quiz-bar > div { height: 100%; background: #ffd23f; }
+.quiz-wrong { min-height: 16px; margin-top: 4px; font-size: 13px; color: #ffb3a3; }
+@media (max-width: 720px), (max-height: 520px) {
+  .gembar { bottom: auto; top: 46px; }
+  .gem { width: 54px; }
+}
 
 .chat.overlay {
   position: absolute;
@@ -372,6 +446,7 @@ form.inline { display: flex; flex-direction: row; flex-wrap: wrap; align-items: 
 .tag { display: inline-block; font-size: 11px; font-weight: 600; background: #3a454c; color: #e8eef1; padding: 1px 6px; border-radius: 3px; }
 .tag.official { background: #7a5a12; color: #fff1c4; }
 .tag.nocd { background: #2f5d7a; color: #dff3ff; margin-left: 4px; }
+.tag.specials { background: #4b2a6b; color: #f0dcff; margin-left: 4px; }
 .tag.ok { background: #2f5a2f; }
 .tag.lock { background: #4a3535; }
 .notices { width: min(900px, 100%); display: flex; flex-direction: column; gap: 4px; }
@@ -392,6 +467,8 @@ form.inline { display: flex; flex-direction: row; flex-wrap: wrap; align-items: 
 .r-epic { --rc: #c58bff; }
 .r-legendary { --rc: #ffbf4d; }
 .rarity.r-common, .rarity.r-rare, .rarity.r-epic, .rarity.r-legendary { color: var(--rc); }
+.rarity.secret { color: #c58bff; }
+.secret-admin { margin-top: 12px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.12); }
 .hero-btn { border-left: 3px solid var(--rc, transparent); }
 .hero-btn.locked { opacity: 0.5; }
 

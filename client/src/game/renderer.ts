@@ -6,12 +6,12 @@
 // que se llena; activación = trazo sólido; impacto = destello breve;
 // finalización = desvanecido. Con efectos reducidos no hay partículas, giros ni
 // destellos, pero las zonas, haces y avisos se siguen dibujando.
-import { COLORS, KICK, STADIUM, powersFor } from '../../../shared/config';
+import { AIM, COLORS, GEM_COLOR, GEM_IDS, KICK, STADIUM, TICK_RATE, powersFor } from '../../../shared/config';
 import { stadium, type Seg } from '../../../shared/physics';
 import type { GameEvent, GameState, PlayerState, Projectile, Team, Zone } from '../../../shared/types';
 import { IN } from '../../../shared/types';
 import { drawHero } from './heroArt';
-import { autoAim, boltTarget, grappleAim } from '../../../shared/powers';
+import { autoAim, boltTarget, gloveTarget, grappleAim, quizTarget } from '../../../shared/powers';
 
 interface Fx {
   kind: 'ring' | 'spark' | 'wave' | 'line' | 'mark';
@@ -61,7 +61,12 @@ const FX_COLOR = {
   rewind: '#5BE38B',
   shield: '#7FB2FF',
   stun: '#FFE15A',
+  tnt: '#FF7A2A',
+  beer: '#E8A93A',
+  donut: '#FF7FB8',
+  quiz: '#2FA84F',
 };
+
 
 export class Renderer {
   private c: CanvasRenderingContext2D;
@@ -73,6 +78,12 @@ export class Renderer {
   private reduced = false;
   /** Duración total del último stun de cada jugador (para su arco de tiempo). */
   private stunTotal = new Map<string, number>();
+  /** Equipo del jugador local (la ilusión de la Gema de la Realidad sólo engaña a los rivales de Thanos). */
+  private localTeam: Team | null = null;
+  /** Mira estable: objetivo mostrado, candidato y desde cuándo lo es. */
+  private aimShown = '';
+  private aimCand = '';
+  private aimSince = 0;
 
   constructor(public canvas: HTMLCanvasElement) {
     this.c = canvas.getContext('2d', { alpha: false })!;
@@ -108,7 +119,7 @@ export class Renderer {
           this.push({ kind: 'wave', x: e.x, y: e.y, r: e.r, color: FX_COLOR.slam, dur: 380 }, true);
           break;
         case 'boom':
-          this.push({ kind: 'wave', x: e.x, y: e.y, r: e.r, color: e.kind === 'arrow' ? FX_COLOR.arrow : FX_COLOR.missile, dur: 420 }, true);
+          this.push({ kind: 'wave', x: e.x, y: e.y, r: e.r, color: e.kind === 'arrow' ? FX_COLOR.arrow : e.kind === 'tnt' ? FX_COLOR.tnt : FX_COLOR.missile, dur: e.kind === 'tnt' ? 520 : 420 }, true);
           this.push({ kind: 'spark', x: e.x, y: e.y, r: e.r * 0.45, color: '#FFE2B0', dur: 260 });
           break;
         case 'hit':
@@ -166,7 +177,35 @@ export class Renderer {
         case 'power':
           if (s) {
             const p = s.players.find((o) => o.id === e.id);
-            if (p) this.push({ kind: 'ring', x: p.d.x, y: p.d.y, r: p.d.r + 8, color: '#ffffff', dur: 180 });
+            const col = e.gem !== undefined ? GEM_COLOR[GEM_IDS[e.gem]] : '#ffffff';
+            if (p) this.push({ kind: 'ring', x: p.d.x, y: p.d.y, r: p.d.r + 8, color: col, dur: e.gem !== undefined ? 320 : 180 }, e.gem !== undefined);
+          }
+          break;
+        case 'shot':
+          // CJ: fogonazo en la boca y trazador breve hacia donde salió la bala
+          this.push({ kind: 'spark', x: e.x, y: e.y, r: 9, color: '#FFE08A', dur: 120 });
+          this.push({ kind: 'line', x: e.x, y: e.y, x2: e.x + e.dx * 70, y2: e.y + e.dy * 70, r: 0, color: '#FFE08A', dur: 140 }, true);
+          break;
+        case 'quiz':
+          if (s) {
+            const p = s.players.find((o) => o.id === e.id);
+            if (!p) break;
+            if (e.result === 'open') this.push({ kind: 'ring', x: p.d.x, y: p.d.y, r: p.d.r + 10, color: FX_COLOR.quiz, dur: 360 }, true);
+            else if (e.result === 'ok') this.push({ kind: 'ring', x: p.d.x, y: p.d.y, r: p.d.r + 8, color: '#9BE36B', dur: 320 }, true);
+            else if (e.result === 'wrong') this.push({ kind: 'mark', x: p.d.x, y: p.d.y - p.d.r - 10, r: 5, color: '#FF6A5A', dur: 400 }, true);
+            else this.push({ kind: 'ring', x: p.d.x, y: p.d.y, r: p.d.r + 8, color: '#cfd6da', dur: 320 }, true);
+          }
+          break;
+        case 'gem':
+          if (s) {
+            const p = s.players.find((o) => o.id === e.id);
+            if (p) this.push({ kind: 'ring', x: p.d.x, y: p.d.y, r: p.d.r + 5, color: GEM_COLOR[GEM_IDS[e.gem]], dur: 200 });
+          }
+          break;
+        case 'illusion':
+          // sólo al equipo engañado: al terminar se revela que la pelota era falsa
+          if (e.result === 'end' && this.localTeam === e.team) {
+            this.banner = { lines: ['¡Era una ilusión!', 'Gema de la Realidad'], color: GEM_COLOR.reality, t0: now, dur: 1800 };
           }
           break;
       }
@@ -203,6 +242,7 @@ export class Renderer {
     const fit = Math.min(W / (STADIUM.width * 2 + 20), H / (STADIUM.height * 2 + 20));
     const scale = fit * o.zoom;
     const me = s?.players.find((p) => p.id === localId);
+    this.localTeam = me?.team ?? null;
     let tx = 0;
     let ty = 0;
     if (o.zoom > 1.001 && s) {
@@ -258,6 +298,8 @@ export class Renderer {
         c.beginPath();
         c.arc(pr.x, pr.y, pr.r + 1, 0, Math.PI * 2);
         c.fill();
+      } else if (pr.kind === 'donut' || pr.kind === 'bullet' || pr.kind === 'ruler') {
+        this.drawNewShot(c, pr);
       } else if (pr.kind === 'batarang') {
         c.save();
         c.translate(pr.x, pr.y);
@@ -280,7 +322,10 @@ export class Renderer {
     for (const p of s.players) this.drawPlayer(c, s, p, p.id === localId, o);
     this.drawAimReticle(c, s, localId);
     this.drawPosts(c);
-    this.drawBall(c, s);
+    // Gema de la Realidad: el equipo engañado ve la pelota falsa en lugar de la real (la física no cambia)
+    const fooled = !!s.illusion && this.localTeam === s.illusion.team;
+    if (fooled) this.drawFakeBall(c, s);
+    else this.drawBall(c, s);
     // haces, rayos y misiles por encima de los discos (la pelota sigue visible: son translúcidos)
     this.drawZones(c, s, 'air');
     this.drawFx(c);
@@ -568,6 +613,79 @@ export class Renderer {
     c.restore();
   }
 
+  /** Dona glaseada (Homero), bala con estela (CJ) y regla girando (Baldi). Tamaño = radio real. */
+  private drawNewShot(c: CanvasRenderingContext2D, pr: Projectile): void {
+    const sp = Math.hypot(pr.vx, pr.vy) || 1;
+    const ux = pr.vx / sp;
+    const uy = pr.vy / sp;
+    const t = performance.now();
+    c.save();
+    if (pr.kind === 'donut') {
+      c.translate(pr.x, pr.y);
+      if (!this.reduced) c.rotate(t / 120);
+      const r = pr.r + 2;
+      c.beginPath();
+      c.arc(0, 0, r, 0, Math.PI * 2);
+      c.arc(0, 0, r * 0.4, 0, Math.PI * 2, true);
+      c.fillStyle = '#D9A15B';
+      c.fill('evenodd');
+      c.beginPath();
+      c.arc(0, 0, r * 0.88, 0, Math.PI * 2);
+      c.arc(0, 0, r * 0.48, 0, Math.PI * 2, true);
+      c.fillStyle = FX_COLOR.donut;
+      c.fill('evenodd');
+      const sprinkles = ['#fff', '#5BC0EB', '#FDE74C', '#9BC53D'];
+      for (let i = 0; i < 6; i++) {
+        const a = (i * Math.PI) / 3 + 0.3;
+        c.fillStyle = sprinkles[i % 4];
+        c.fillRect(Math.cos(a) * r * 0.68 - 1, Math.sin(a) * r * 0.68 - 0.6, 2, 1.2);
+      }
+    } else if (pr.kind === 'bullet') {
+      c.strokeStyle = 'rgba(255,224,138,0.55)';
+      c.lineWidth = pr.r;
+      c.lineCap = 'round';
+      c.beginPath();
+      c.moveTo(pr.x - ux * 22, pr.y - uy * 22);
+      c.lineTo(pr.x, pr.y);
+      c.stroke();
+      c.beginPath();
+      c.arc(pr.x, pr.y, pr.r, 0, Math.PI * 2);
+      c.fillStyle = '#FFD24A';
+      c.fill();
+      c.strokeStyle = '#6b4a10';
+      c.lineWidth = 1;
+      c.stroke();
+    } else {
+      c.translate(pr.x, pr.y);
+      c.rotate(this.reduced ? Math.atan2(uy, ux) : t / 70);
+      const L = pr.r * 2.6;
+      c.fillStyle = '#D8B26A';
+      c.strokeStyle = '#7a5a22';
+      c.lineWidth = 1;
+      c.fillRect(-L, -pr.r * 0.45, L * 2, pr.r * 0.9);
+      c.strokeRect(-L, -pr.r * 0.45, L * 2, pr.r * 0.9);
+      c.beginPath();
+      for (let i = -3; i <= 3; i++) {
+        c.moveTo((i * L) / 3.5, -pr.r * 0.45);
+        c.lineTo((i * L) / 3.5, -pr.r * 0.1);
+      }
+      c.stroke();
+    }
+    c.restore();
+  }
+
+  /** Pelota de la ilusión: igual a la real para el equipo engañado (sin pistas). */
+  private drawFakeBall(c: CanvasRenderingContext2D, s: GameState): void {
+    const il = s.illusion!;
+    c.beginPath();
+    c.arc(il.x, il.y, s.ball.r, 0, Math.PI * 2);
+    c.fillStyle = COLORS.ball;
+    c.fill();
+    c.lineWidth = 2;
+    c.strokeStyle = '#000';
+    c.stroke();
+  }
+
   private star(c: CanvasRenderingContext2D, r: number, color: string): void {
     c.beginPath();
     for (let i = 0; i < 10; i++) {
@@ -730,6 +848,101 @@ export class Renderer {
         this.progress(c, z.x, z.y, z.r + 11, k, 'rgba(169,121,255,0.95)');
         break;
       }
+      case 'beer': {
+        // charco ámbar translúcido con su radio real; mientras vuela, sólo el contorno donde cae
+        const P2 = P.homer.beer;
+        const landed = z.delay === 0;
+        const fade = Math.min(1, z.ticks / 20);
+        c.globalAlpha = fade;
+        c.beginPath();
+        c.arc(z.x, z.y, z.r, 0, Math.PI * 2);
+        if (landed) {
+          c.fillStyle = 'rgba(232,169,58,0.32)';
+          c.fill();
+          c.lineWidth = 1.5;
+          c.strokeStyle = 'rgba(255,214,120,0.8)';
+          c.stroke();
+          if (!this.reduced) {
+            c.fillStyle = 'rgba(255,250,230,0.55)';
+            for (let i = 0; i < 5; i++) {
+              const a = i * 1.3 + z.id;
+              const rr = z.r * (0.25 + ((i * 37) % 60) / 100);
+              c.beginPath();
+              c.arc(z.x + Math.cos(a) * rr, z.y + Math.sin(a) * rr, 1.6 + Math.sin(now / 300 + i) * 0.6, 0, Math.PI * 2);
+              c.fill();
+            }
+          }
+        } else {
+          c.setLineDash([5, 4]);
+          c.lineWidth = 1.5;
+          c.strokeStyle = 'rgba(232,169,58,0.9)';
+          c.stroke();
+          c.setLineDash([]);
+          this.progress(c, z.x, z.y, z.r + 4, 1 - z.delay / Math.max(1, P2.throwTicks), 'rgba(232,169,58,0.9)', 2);
+        }
+        break;
+      }
+      case 'tnt': {
+        // perímetro real de la explosión, que se llena con la mecha
+        const c2 = P.verity.tnt;
+        if (z.delay <= 0) break;
+        const fuseLeft = Math.min(z.delay, c2.fuse);
+        const k = 1 - fuseLeft / c2.fuse;
+        c.beginPath();
+        c.arc(z.x, z.y, z.r, 0, Math.PI * 2);
+        c.fillStyle = `rgba(255,90,40,${0.06 + 0.14 * k})`;
+        c.fill();
+        c.setLineDash([6, 5]);
+        c.lineWidth = 2;
+        c.strokeStyle = 'rgba(255,122,42,0.95)';
+        c.stroke();
+        c.setLineDash([]);
+        if (z.delay <= c2.fuse) this.progress(c, z.x, z.y, z.r + 3, k, 'rgba(255,60,30,0.95)', 3);
+        break;
+      }
+      case 'quiz': {
+        // anticipación del quiz: aro verde pizarrón que se cierra sobre el objetivo
+        const k = 1 - z.delay / Math.max(1, P.baldi.quiz.windup);
+        c.beginPath();
+        c.arc(z.x, z.y, z.r + 12 - 6 * k, 0, Math.PI * 2);
+        c.setLineDash([4, 3]);
+        c.lineWidth = 2.5;
+        c.strokeStyle = 'rgba(47,168,79,0.95)';
+        c.stroke();
+        c.setLineDash([]);
+        break;
+      }
+      case 'space': {
+        // Gema del Espacio: destino junto a la pelota mientras carga
+        const k = 1 - z.delay / Math.max(1, P.thanos.space.windup);
+        c.beginPath();
+        c.arc(s.ball.x, s.ball.y, s.ball.r + 10, 0, Math.PI * 2);
+        c.setLineDash([5, 4]);
+        c.lineWidth = 2;
+        c.strokeStyle = 'rgba(63,124,242,0.95)';
+        c.stroke();
+        c.setLineDash([]);
+        this.progress(c, s.ball.x, s.ball.y, s.ball.r + 14, k, GEM_COLOR.space, 2.5);
+        break;
+      }
+      case 'timeGhost': {
+        // recorrido fantasma verde que se desvanece
+        if (z.pts.length < 2) break;
+        c.globalAlpha = Math.min(1, z.ticks / 20) * 0.8;
+        c.beginPath();
+        z.pts.forEach((pt, i) => (i === 0 ? c.moveTo(pt.x, pt.y) : c.lineTo(pt.x, pt.y)));
+        c.setLineDash([4, 4]);
+        c.lineWidth = 2;
+        c.strokeStyle = GEM_COLOR.time;
+        c.stroke();
+        c.setLineDash([]);
+        const last = z.pts[z.pts.length - 1];
+        c.beginPath();
+        c.arc(last.x, last.y, z.r, 0, Math.PI * 2);
+        c.strokeStyle = 'rgba(63,209,107,0.6)';
+        c.stroke();
+        break;
+      }
       default:
         break;
     }
@@ -829,6 +1042,119 @@ export class Renderer {
         c.stroke();
         break;
       }
+      case 'beer': {
+        if (z.delay <= 0) break;
+        // vaso volando hacia donde cae el charco
+        const o = z.pts[0];
+        if (!o) break;
+        const k = 1 - z.delay / Math.max(1, P.homer.beer.throwTicks);
+        const x = o.x + (z.x - o.x) * k;
+        const y = o.y + (z.y - o.y) * k - Math.sin(k * Math.PI) * 26;
+        c.translate(x, y);
+        if (!this.reduced) c.rotate(k * 6);
+        c.fillStyle = 'rgba(232,169,58,0.95)';
+        c.strokeStyle = '#fff';
+        c.lineWidth = 1;
+        c.fillRect(-4, -6, 8, 12);
+        c.strokeRect(-4, -6, 8, 12);
+        c.fillStyle = '#fff';
+        c.fillRect(-4, -8, 8, 3);
+        break;
+      }
+      case 'tnt': {
+        const c2 = P.verity.tnt;
+        if (z.delay <= 0) break;
+        const flying = z.delay > c2.fuse;
+        let x = z.x;
+        let y = z.y;
+        if (flying) {
+          const o = z.pts[0];
+          const k = 1 - (z.delay - c2.fuse) / Math.max(1, c2.flightTicks);
+          if (o) {
+            x = o.x + (z.x - o.x) * k;
+            y = o.y + (z.y - o.y) * k - Math.sin(k * Math.PI) * 40;
+          }
+        }
+        // bloque de TNT con mecha encendida y cuenta regresiva
+        c.save();
+        c.translate(x, y);
+        if (flying && !this.reduced) c.rotate(now / 150);
+        c.fillStyle = '#C8232C';
+        c.fillRect(-8, -8, 16, 16);
+        c.fillStyle = '#F2F2F2';
+        c.fillRect(-8, -3, 16, 6);
+        c.fillStyle = '#111';
+        c.font = '900 5px Arial, sans-serif';
+        c.textAlign = 'center';
+        c.textBaseline = 'middle';
+        c.fillText('TNT', 0, 0.3);
+        c.strokeStyle = '#3a2a1a';
+        c.lineWidth = 1.2;
+        c.beginPath();
+        c.moveTo(0, -8);
+        c.quadraticCurveTo(4, -12, 2, -15);
+        c.stroke();
+        if (!flying || !this.reduced) {
+          c.fillStyle = Math.floor(now / 90) % 2 ? '#FFE15A' : '#FF7A2A';
+          c.beginPath();
+          c.arc(2, -15.5, 2, 0, Math.PI * 2);
+          c.fill();
+        }
+        c.restore();
+        if (!flying) {
+          const secs = Math.ceil(z.delay / TICK_RATE);
+          c.font = '900 13px "Arial Black", Arial, sans-serif';
+          c.textAlign = 'center';
+          c.textBaseline = 'middle';
+          c.lineWidth = 3;
+          c.strokeStyle = '#000';
+          c.strokeText(String(secs), x, y - 24);
+          c.fillStyle = '#FFE15A';
+          c.fillText(String(secs), x, y - 24);
+        }
+        break;
+      }
+      case 'punch': {
+        // guante de Ibai: sale hacia el rival y vuelve
+        const owner = s.players.find((o) => o.id === z.owner);
+        if (!owner) break;
+        const c2 = P.ibai.glove;
+        const total = c2.windup + 10;
+        const k = 1 - Math.abs((z.ticks - 10) / Math.max(1, total - 10));
+        const reach = owner.d.r + c2.range * Math.max(0, Math.min(1, z.delay > 0 ? 1 - z.delay / Math.max(1, c2.windup) : k));
+        const gx = owner.d.x + z.dx * reach;
+        const gy = owner.d.y + z.dy * reach;
+        c.strokeStyle = 'rgba(40,40,40,0.8)';
+        c.lineWidth = 3;
+        c.beginPath();
+        c.moveTo(owner.d.x + z.dx * owner.d.r, owner.d.y + z.dy * owner.d.r);
+        c.lineTo(gx, gy);
+        c.stroke();
+        c.beginPath();
+        c.arc(gx, gy, 8, 0, Math.PI * 2);
+        c.fillStyle = '#D62828';
+        c.fill();
+        c.lineWidth = 1.5;
+        c.strokeStyle = '#fff';
+        c.stroke();
+        break;
+      }
+      case 'mind': {
+        // Gema de la Mente: lazo amarillo de Thanos al controlado
+        const owner = s.players.find((o) => o.id === z.owner);
+        const t = s.players.find((o) => o.id === z.target);
+        if (!owner || !t) break;
+        c.strokeStyle = 'rgba(242,208,59,0.75)';
+        c.lineWidth = 1.5;
+        c.setLineDash([3, 4]);
+        c.lineDashOffset = this.reduced ? 0 : -now / 40;
+        c.beginPath();
+        c.moveTo(owner.d.x, owner.d.y);
+        c.lineTo(t.d.x, t.d.y);
+        c.stroke();
+        c.setLineDash([]);
+        break;
+      }
       default:
         break;
     }
@@ -866,6 +1192,19 @@ export class Renderer {
     c.lineWidth = 2;
     c.strokeStyle = '#000';
     c.stroke();
+    if (s.ballDonut > 0) {
+      // dona de Homero: aro glaseado alrededor de la pelota frenada (no cambia la colisión)
+      c.beginPath();
+      c.arc(b.x, b.y, b.r + 3, 0, Math.PI * 2);
+      c.lineWidth = 4;
+      c.strokeStyle = 'rgba(255,127,184,0.9)';
+      c.stroke();
+      c.lineWidth = 1;
+      c.strokeStyle = 'rgba(217,161,91,0.95)';
+      c.beginPath();
+      c.arc(b.x, b.y, b.r + 5.5, 0, Math.PI * 2);
+      c.stroke();
+    }
     if (s.ballElec > 0) {
       // electricidad de Mjolnir: arcos decorativos (sólo el contacto físico aturde)
       c.strokeStyle = 'rgba(120,200,255,0.95)';
@@ -961,6 +1300,49 @@ export class Renderer {
       c.lineWidth = 2;
       c.stroke();
     }
+    if (p.jet > 0) {
+      // jetpack de CJ: sombra en el suelo y dos propulsores detrás
+      c.beginPath();
+      c.ellipse(x + 3, y + r * 0.9, r * 0.9, r * 0.35, 0, 0, Math.PI * 2);
+      c.fillStyle = 'rgba(0,0,0,0.25)';
+      c.fill();
+      for (const off of [-0.5, 0.5]) {
+        const nx = -by * off * r;
+        const ny = bx * off * r;
+        const fl = r * (0.9 + (this.reduced ? 0 : Math.random() * 0.5));
+        c.beginPath();
+        c.moveTo(x + bx * r * 0.8 + nx - by * 3, y + by * r * 0.8 + ny + bx * 3);
+        c.lineTo(x + bx * (r * 0.8 + fl) + nx, y + by * (r * 0.8 + fl) + ny);
+        c.lineTo(x + bx * r * 0.8 + nx + by * 3, y + by * r * 0.8 + ny - bx * 3);
+        c.closePath();
+        c.fillStyle = 'rgba(255,170,50,0.9)';
+        c.fill();
+      }
+    }
+    if (p.anger > 0) {
+      // enojo de Verity: aura roja sutil
+      c.beginPath();
+      c.arc(x, y, r + 4, 0, Math.PI * 2);
+      c.strokeStyle = `rgba(230,40,40,${this.reduced ? 0.7 : 0.55 + 0.2 * Math.sin(t / 120)})`;
+      c.lineWidth = 3;
+      c.stroke();
+    }
+    if (p.powerKick > 0) {
+      // Gema del Poder: la próxima patada pega fuerte
+      c.beginPath();
+      c.arc(x, y, r + 5, 0, Math.PI * 2);
+      c.strokeStyle = 'rgba(166,79,242,0.9)';
+      c.lineWidth = 2.5;
+      c.stroke();
+    }
+    if (p.slip > 0) {
+      // patinando en la cerveza
+      c.beginPath();
+      c.arc(x, y, r + 2, 0.2, Math.PI - 0.2);
+      c.strokeStyle = 'rgba(232,169,58,0.85)';
+      c.lineWidth = 2;
+      c.stroke();
+    }
     if (p.slowNow > 0 || p.slowTicks > 0 || p.capSlowTicks > 0) {
       c.beginPath();
       c.arc(x, y, r + 3, 0, Math.PI * 2);
@@ -979,7 +1361,7 @@ export class Renderer {
       // emblema dentro de un anillo del color del equipo
       c.save();
       c.translate(x, y);
-      drawHero(c, p.hero, r - 5);
+      drawHero(c, p.hero, r - 5, { angry: p.anger > 0 });
       c.restore();
     }
     c.beginPath();
@@ -988,6 +1370,61 @@ export class Renderer {
     c.strokeStyle = p.input & IN.KICK && p.stun === 0 ? '#fff' : '#000';
     c.stroke();
 
+    if (p.trap > 0) {
+      // atrapado por la dona: aro glaseado alrededor
+      c.beginPath();
+      c.arc(x, y, r + 4, 0, Math.PI * 2);
+      c.lineWidth = 5;
+      c.strokeStyle = 'rgba(255,127,184,0.85)';
+      c.stroke();
+      c.lineWidth = 1.2;
+      c.strokeStyle = 'rgba(217,161,91,0.95)';
+      c.beginPath();
+      c.arc(x, y, r + 7, 0, Math.PI * 2);
+      c.stroke();
+    }
+    if (p.mind > 0) {
+      // controlado por la Gema de la Mente
+      c.beginPath();
+      c.arc(x, y, r + 5, 0, Math.PI * 2);
+      c.setLineDash([2, 3]);
+      c.lineWidth = 2;
+      c.strokeStyle = GEM_COLOR.mind;
+      c.stroke();
+      c.setLineDash([]);
+    }
+    if (p.quiz) {
+      // respondiendo el quiz de Baldi: pizarrón con signo de pregunta (todos ven que está bloqueado)
+      c.save();
+      c.translate(x, y - r - 12);
+      c.fillStyle = '#1f5130';
+      c.fillRect(-8, -7, 16, 13);
+      c.strokeStyle = '#c9a26a';
+      c.lineWidth = 1.5;
+      c.strokeRect(-8, -7, 16, 13);
+      c.fillStyle = '#fff';
+      c.font = '700 10px Arial, sans-serif';
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      c.fillText('?', 0, 0);
+      c.restore();
+      this.progress(c, x, y, r + 5, p.quiz.ticks / Math.max(1, p.quiz.max), FX_COLOR.quiz, 2.5);
+    }
+    if (p.anger > 0 && s.mode !== 'classic') {
+      // cartel de patada fuerte mientras dura el enojo
+      c.save();
+      c.translate(x + r * 0.8, y - r * 0.8);
+      c.beginPath();
+      c.arc(0, 0, 5.5, 0, Math.PI * 2);
+      c.fillStyle = '#D62828';
+      c.fill();
+      c.fillStyle = '#fff';
+      c.font = '900 8px Arial, sans-serif';
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      c.fillText('!', 0, 0.5);
+      c.restore();
+    }
     if (p.stun > 0) {
       // aturdido: anillo amarillo con el tiempo que le queda y estrellitas encima
       const total = this.stunTotal.get(p.id) ?? p.stun;
@@ -1079,10 +1516,69 @@ export class Renderer {
         c.restore();
       }
     }
-    if (me.cdQ > 0) return;
+    const fooled = !!s.illusion && s.illusion.team === me.team;
+    const tri = (x: number, y: number, col: string) => {
+      c.save();
+      c.translate(x, y);
+      c.beginPath();
+      c.moveTo(-4, -4);
+      c.lineTo(4, -4);
+      c.lineTo(0, 3);
+      c.closePath();
+      c.fillStyle = col;
+      c.fill();
+      c.restore();
+    };
+    // Baldi: rival que tomaría el quiz; Ibai: rival que alcanzaría el guante
+    if (me.hero === 'baldi' && me.cdE === 0) {
+      const t = quizTarget(s, me);
+      if (t) tri(t.d.x, t.d.y - t.d.r - 9, 'rgba(47,168,79,0.95)');
+    }
+    if (me.hero === 'ibai' && me.cdQ === 0) {
+      const t = gloveTarget(s, me);
+      if (t) tri(t.d.x, t.d.y - t.d.r - 9, 'rgba(214,40,40,0.95)');
+    }
+    // Verity: dónde caería la TNT
+    if (me.hero === 'verity' && me.cdE === 0) {
+      const a = autoAim(s, me, 'e');
+      const c2 = P.verity.tnt;
+      let tx = a && !(fooled && a.target.kind === 'ball') ? a.x : me.d.x + me.ax * c2.range;
+      let ty = a && !(fooled && a.target.kind === 'ball') ? a.y : me.d.y + me.ay * c2.range;
+      const dist = Math.hypot(tx - me.d.x, ty - me.d.y);
+      if (dist > c2.range + me.d.r) {
+        tx = me.d.x + ((tx - me.d.x) / dist) * (c2.range + me.d.r);
+        ty = me.d.y + ((ty - me.d.y) / dist) * (c2.range + me.d.r);
+      }
+      c.beginPath();
+      c.arc(tx, ty, c2.radius, 0, Math.PI * 2);
+      c.setLineDash([3, 6]);
+      c.strokeStyle = 'rgba(255,122,42,0.5)';
+      c.lineWidth = 1.5;
+      c.stroke();
+      c.setLineDash([]);
+    }
+    const qReady = me.hero === 'thanos' ? false : me.hero === 'cj' ? me.ammo > 0 && me.shotGap === 0 : me.cdQ === 0;
+    if (!qReady) {
+      this.aimShown = '';
+      return;
+    }
     const aim = autoAim(s, me);
-    if (!aim) return;
-    const t = aim.target;
+    // durante la ilusión no se delata la pelota real
+    if (!aim || (fooled && aim.target.kind === 'ball')) {
+      this.aimShown = this.aimCand = '';
+      return;
+    }
+    // la mira sólo cambia de objetivo si el nuevo se sostiene un instante (sin parpadeo)
+    const key = aim.target.id ?? 'ball';
+    const nowMs = performance.now();
+    if (key !== this.aimCand) {
+      this.aimCand = key;
+      this.aimSince = nowMs;
+    }
+    if (!this.aimShown || nowMs - this.aimSince >= AIM.switchMs) this.aimShown = key;
+    const shownPl = this.aimShown === 'ball' ? null : s.players.find((o) => o.id === this.aimShown);
+    if (this.aimShown !== 'ball' && !shownPl) this.aimShown = key;
+    const t = this.aimShown === 'ball' ? { kind: 'ball' as const, x: s.ball.x, y: s.ball.y } : { kind: 'player' as const, x: shownPl!.d.x, y: shownPl!.d.y };
     const r = (t.kind === 'ball' ? s.ball.r : me.d.r) + 5;
     c.save();
     c.translate(t.x, t.y);

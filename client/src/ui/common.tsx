@@ -1,12 +1,18 @@
-import { useEffect, useRef } from 'react';
-import { HEROES, HERO_CATALOG, HERO_IDS, RARITY_LABEL, heroInfo, type HeroId, type Rarity } from '../../../shared/config';
+import { useEffect, useRef, useState } from 'react';
+import { GEM_COLOR, GEM_IDS, HEROES, HERO_CATALOG, PUBLIC_HERO_IDS, RARITY_LABEL, SECRET_IDS, heroInfo, type HeroId, type Rarity } from '../../../shared/config';
 import type { GameMode } from '../../../shared/types';
 import { setAudio } from '../game/audio';
-import { drawHero, drawPowerIcon } from '../game/heroArt';
+import { drawGemIcon, drawHero, drawPowerIcon, onPortraitLoad, preloadPortraits } from '../game/heroArt';
 import type { Prefs } from '../prefs';
 
 export function HeroBadge({ hero, size = 28, team }: { hero: HeroId; size?: number; team?: 'red' | 'blue' | 'spec' }) {
   const ref = useRef<HTMLCanvasElement>(null);
+  // los retratos cargan en segundo plano: redibujar cuando llegan
+  const [, setLoaded] = useState(0);
+  useEffect(() => {
+    preloadPortraits();
+    return onPortraitLoad(() => setLoaded((n) => n + 1));
+  }, []);
   useEffect(() => {
     const c = ref.current!.getContext('2d')!;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -25,7 +31,7 @@ export function HeroBadge({ hero, size = 28, team }: { hero: HeroId; size?: numb
     c.lineWidth = 1.5;
     c.strokeStyle = '#000';
     c.stroke();
-  }, [hero, size, team]);
+  });
   return <canvas ref={ref} style={{ width: size, height: size }} className="hero-badge" />;
 }
 
@@ -46,8 +52,34 @@ export function RarityTag({ rarity }: { rarity: Rarity }) {
   return <span className={`rarity r-${rarity}`}>{RARITY_ICON[rarity]} {RARITY_LABEL[rarity]}</span>;
 }
 
+function GemIcon({ color }: { color: string }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const c = ref.current!.getContext('2d')!;
+    c.clearRect(0, 0, 40, 40);
+    drawGemIcon(c, color, 40);
+  }, [color]);
+  return <canvas ref={ref} width={40} height={40} className="power-icon" />;
+}
+
 export function PowerList({ hero, mode = 'heroes' }: { hero: HeroId; mode?: GameMode }) {
   const h = heroInfo(hero, mode);
+  if (h.gems) {
+    return (
+      <div className="hero-powers">
+        <div className="muted small">Teclas 1–5 eligen la gema · Q la activa · E pasa a la siguiente (en el celular: tocá la gema y después Q).</div>
+        {h.gems.map((g, i) => (
+          <div key={i} className="hero-power">
+            <GemIcon color={GEM_COLOR[GEM_IDS[i]]} />
+            <div>
+              <b>{i + 1} · {g.name}</b> <span className="muted">(recarga {Math.round(g.cooldown / 60)} s)</span>
+              <div className="muted">{g.desc}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
   return (
     <div className="hero-powers">
       {(['q', 'e'] as const).map((k) => (
@@ -63,15 +95,18 @@ export function PowerList({ hero, mode = 'heroes' }: { hero: HeroId; mode?: Game
   );
 }
 
-export function HeroPicker({ value, onChange, team, note, mode = 'heroes', locked }: {
+export function HeroPicker({ value, onChange, team, note, mode = 'heroes', locked, secrets = [] }: {
   value: HeroId; onChange: (h: HeroId) => void; team?: 'red' | 'blue' | 'spec'; note?: string; mode?: GameMode;
   /** Héroes no disponibles en esta partida (oficial: sólo los de la colección). */
   locked?: (h: HeroId) => boolean;
+  /** Personajes secretos que esta cuenta tiene (sólo esos se muestran). */
+  secrets?: HeroId[];
 }) {
+  const ids = [...PUBLIC_HERO_IDS, ...SECRET_IDS.filter((h) => secrets.includes(h))];
   return (
     <div className="hero-picker">
       <div className="hero-row" role="radiogroup" aria-label="Héroe">
-        {HERO_IDS.map((id) => {
+        {ids.map((id) => {
           const lock = locked?.(id) ?? false;
           return (
             <button
@@ -142,7 +177,7 @@ export function SettingsPanel({ prefs, setPrefs }: { prefs: Prefs; setPrefs: (p:
 export function Controls() {
   return (
     <div className="controls-help muted small">
-      WASD/flechas mover · Espacio/X patear · Q/E poderes · Enter chat · Esc menú
+      WASD/flechas mover · Espacio/X patear · Q/E poderes · 1–5 gemas (Thanos) · 1–3 responder el quiz · Enter chat · Esc menú
     </div>
   );
 }

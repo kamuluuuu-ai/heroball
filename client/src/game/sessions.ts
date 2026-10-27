@@ -1,6 +1,6 @@
 // Sesiones de juego: local (entrenamiento / bots) y en red (predicción del
 // jugador local, reconciliación e interpolación de los demás).
-import { HERO_IDS, HeroId, TICK_MS } from '../../../shared/config';
+import { PUBLIC_HERO_IDS, HeroId, TICK_MS, isSecret } from '../../../shared/config';
 import { BotBrain, botInput, makeBrain } from '../../../shared/bot';
 import { cloneState, createGame, requestHero, resetKickoff, setInput, step } from '../../../shared/game';
 import type { Disc } from '../../../shared/physics';
@@ -77,10 +77,12 @@ export class LocalSession implements Session {
 
   private build(): GameState {
     const o = this.opts;
+    // sin servidor no se puede comprobar la propiedad: los personajes especiales sólo van en salas del servidor
+    if (isSecret(o.hero)) o.hero = 'spider';
     const players: { id: string; team: Team; hero: HeroId }[] = [{ id: 'me', team: 'red', hero: o.hero }];
     this.brains = [];
     if (o.kind === 'bots') {
-      const heroes = HERO_IDS.filter((h) => h !== o.hero).sort(() => Math.random() - 0.5);
+      const heroes = PUBLIC_HERO_IDS.filter((h) => h !== o.hero).sort(() => Math.random() - 0.5);
       let n = 0;
       for (let i = 1; i < o.teamSize; i++) {
         const id = `bot-r${i}`;
@@ -118,6 +120,7 @@ export class LocalSession implements Session {
   }
 
   setHero(hero: HeroId): void {
+    if (isSecret(hero)) return;
     this.opts.hero = hero;
     if (this.opts.kind === 'training') {
       // en entrenamiento se aplica al instante (sin rivales a quienes perjudicar)

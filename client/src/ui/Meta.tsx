@@ -1,8 +1,8 @@
 // Pantallas de cuenta y economía: acceso, colección, cofres, perfil y
 // administración. Todo saldo, héroe o rol que se muestra viene del servidor.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { HEROES, HERO_CATALOG, HERO_IDS, RARITY_LABEL, ROLE_LABEL, type HeroId, type HeroRole, type Rarity } from '../../../shared/config';
-import { ECONOMY, ODDS_SCALE, RARITIES, type ChestType } from '../../../shared/economy';
+import { HEROES, HERO_CATALOG, PUBLIC_HERO_IDS, RARITY_LABEL, ROLE_LABEL, SECRET_IDS, isSecret, type HeroId, type HeroRole, type Rarity } from '../../../shared/config';
+import { ECONOMY, ODDS_SCALE, RARITIES, heroesOfRarity, type ChestType } from '../../../shared/economy';
 import { account, UnknownOutcome, newKey, type LedgerRow, type Notice, type Odds, type Opening, type OpenResult } from '../account';
 import { HeroBadge, PowerList, RARITY_ICON, RarityTag } from './common';
 
@@ -69,6 +69,8 @@ function noticeText(n: Notice): string {
   }
   if (n.kind === 'grant') return `Recibiste ${amounts()}. Motivo: ${p.reason}.`;
   if (n.kind === 'correction') return `Corrección de saldo: ${amounts()}. Motivo: ${p.reason}.`;
+  if (n.kind === 'hero_grant') return `Recibiste un personaje especial: ${HEROES[p.hero as HeroId]?.name ?? p.hero}. Sólo se usa en salas casuales con «Personajes especiales» (sin recompensas). Motivo: ${p.reason}.`;
+  if (n.kind === 'hero_revoke') return `Se retiró el personaje especial ${HEROES[p.hero as HeroId]?.name ?? p.hero} de tu colección. Motivo: ${p.reason}.`;
   return 'Aviso nuevo.';
 }
 
@@ -238,14 +240,17 @@ export function Collection({ selected, onEquip, onTry, onChests }: {
 }) {
   const a = useAccount();
   const signed = a.status === 'signed';
-  const owned = signed ? a.owned() : new Set<HeroId>(HERO_IDS.filter((h) => HERO_CATALOG[h].starter));
+  const owned = signed ? a.owned() : new Set<HeroId>(PUBLIC_HERO_IDS.filter((h) => HERO_CATALOG[h].starter));
+  // los personajes secretos sólo aparecen en la colección de quien los tiene
+  const visible = [...PUBLIC_HERO_IDS, ...SECRET_IDS.filter((h) => owned.has(h))];
+  const ownedPublic = PUBLIC_HERO_IDS.filter((h) => owned.has(h)).length;
   const [rarity, setRarity] = useState<Rarity | 'all'>('all');
   const [role, setRole] = useState<HeroRole | 'all'>('all');
   const [avail, setAvail] = useState<Avail>('all');
   const [focus, setFocus] = useState<HeroId>(selected);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const list = HERO_IDS.filter((h) => {
+  const list = visible.filter((h) => {
     const c = HERO_CATALOG[h];
     if (rarity !== 'all' && c.rarity !== rarity) return false;
     if (role !== 'all' && c.role !== role) return false;
@@ -255,6 +260,8 @@ export function Collection({ selected, onEquip, onTry, onChests }: {
   });
   const c = HERO_CATALOG[focus];
   const have = owned.has(focus);
+  const secret = isSecret(focus);
+  const pool = heroesOfRarity(c.rarity).length || 1;
   const cost = ECONOMY.unlockCost[c.rarity];
   const frags = a.profile?.wallet.fragments ?? 0;
   const equipped = a.profile?.wallet.equipped;
@@ -315,7 +322,7 @@ export function Collection({ selected, onEquip, onTry, onChests }: {
             <option value="locked">Bloqueados</option>
           </select>
         </label>
-        <span className="muted small">{owned.size}/{HERO_IDS.length} en tu colección{!signed && ' (invitado: sólo los iniciales)'}</span>
+        <span className="muted small">{ownedPublic}/{PUBLIC_HERO_IDS.length} en tu colección{!signed && ' (invitado: sólo los iniciales)'}</span>
       </div>
       <div className="hero-grid">
         {list.map((h) => {
@@ -331,7 +338,7 @@ export function Collection({ selected, onEquip, onTry, onChests }: {
             >
               <HeroBadge hero={h} size={44} team="red" />
               <b>{HEROES[h].name}</b>
-              <RarityTag rarity={cat.rarity} />
+              {isSecret(h) ? <span className="rarity secret">✦ Secreto</span> : <RarityTag rarity={cat.rarity} />}
               <span className="small">{mine ? (h === (equipped ?? selected) ? '✔ Equipado' : 'En tu colección') : '🔒 Bloqueado'}</span>
             </button>
           );
@@ -343,20 +350,22 @@ export function Collection({ selected, onEquip, onTry, onChests }: {
           <HeroBadge hero={focus} size={64} team="red" />
           <div>
             <h2>{HEROES[focus].name}</h2>
-            <div className="hd-tags"><RarityTag rarity={c.rarity} /> <span className="tag">{ROLE_LABEL[c.role]}</span> {have ? <span className="tag ok">En tu colección</span> : <span className="tag lock">🔒 Bloqueado</span>}</div>
+            <div className="hd-tags">{secret ? <span className="rarity secret">✦ Secreto</span> : <RarityTag rarity={c.rarity} />} <span className="tag">{ROLE_LABEL[c.role]}</span> {have ? <span className="tag ok">En tu colección</span> : <span className="tag lock">🔒 Bloqueado</span>}</div>
           </div>
         </div>
         <PowerList hero={focus} />
         <p className="small">
           <b>Cómo se consigue: </b>
-          {c.starter
-            ? 'Héroe inicial: gratis para todos.'
-            : `Sale en cofres (${RARITY_LABEL[c.rarity].toLowerCase()}: ${pct(ECONOMY.chests.standard.odds[c.rarity] / 2)} por cofre estándar, ${pct(ECONOMY.chests.elite.odds[c.rarity] / 2)} por cofre élite). También se desbloquea con ${cost} Fragmentos, que dan los héroes repetidos.`}
+          {secret
+            ? 'Personaje especial: no sale en cofres ni se desbloquea con Fragmentos; lo asigna un administrador. Sólo se usa en salas casuales con «Personajes especiales» activado, sin recompensas.'
+            : c.starter
+              ? 'Héroe inicial: gratis para todos.'
+              : `Sale en cofres (${RARITY_LABEL[c.rarity].toLowerCase()}: ${pct(ECONOMY.chests.standard.odds[c.rarity] / pool)} por cofre estándar, ${pct(ECONOMY.chests.elite.odds[c.rarity] / pool)} por cofre élite). También se desbloquea con ${cost} Fragmentos, que dan los héroes repetidos.`}
         </p>
         <div className="btn-row">
-          <button onClick={() => onTry(focus)}>Probar en entrenamiento</button>
+          {!secret && <button onClick={() => onTry(focus)}>Probar en entrenamiento</button>}
           {(have || !signed) && <button className="primary" disabled={busy || (signed && equipped === focus)} onClick={() => void equip()}>{signed && equipped === focus ? 'Equipado' : 'Equipar'}</button>}
-          {signed && !have && (
+          {signed && !have && !secret && (
             <button className="primary" disabled={busy || frags < cost} onClick={() => void unlock()}>
               Desbloquear por {cost} ◆
             </button>
@@ -472,6 +481,7 @@ export function OddsTable({ next }: { next?: Record<ChestType, { odds: Odds; gua
           <th>Rareza</th>
           <th>Estándar</th>{next && <th>Tu próxima</th>}
           <th>Élite</th>{next && <th>Tu próxima</th>}
+          <th>Por héroe (est. / élite)</th>
         </tr>
       </thead>
       <tbody>
@@ -480,6 +490,7 @@ export function OddsTable({ next }: { next?: Record<ChestType, { odds: Odds; gua
             <td><RarityTag rarity={r} /></td>
             <td>{pct(ECONOMY.chests.standard.odds[r])}</td>{next && <td className={next.standard.guarantee ? 'hl' : ''}>{pct(next.standard.odds[r])}</td>}
             <td>{pct(ECONOMY.chests.elite.odds[r])}</td>{next && <td className={next.elite.guarantee ? 'hl' : ''}>{pct(next.elite.odds[r])}</td>}
+            <td className="small">{heroesOfRarity(r).length ? `${heroesOfRarity(r).length} héroes · ${pct(ECONOMY.chests.standard.odds[r] / heroesOfRarity(r).length)} / ${pct(ECONOMY.chests.elite.odds[r] / heroesOfRarity(r).length)} c/u` : '—'}</td>
           </tr>
         ))}
       </tbody>
@@ -706,7 +717,9 @@ interface UserDetail {
   heroes: { hero: HeroId; source: string }[];
   ledger: LedgerRow[];
   openings: Opening[];
+  heroGrants?: { id: number; hero: HeroId; action: 'grant' | 'revoke'; reason: string; actor_id: string; actor_name: string | null; created_at: string }[];
 }
+interface SecretPreview { userId: string; name: string; hero: HeroId; heroName: string; action: 'grant' | 'revoke'; reason: string; owned: boolean; valid: boolean }
 interface Preview {
   userId: string; name: string; reason: string; coins: number; standard: number; elite: number; corrects: number | null;
   before: { coins: number; standard: number; elite: number };
@@ -886,9 +899,94 @@ function UserAdmin({ d, reload, self }: { d: UserDetail; reload: () => void; sel
         </div>
       )}
       {msg && <div className={msg.ok ? 'ok-text' : 'error'} role="status">{msg.text}</div>}
+      <SecretAdmin d={d} reload={reload} />
       <h3>Movimientos</h3>
       {d.ledger.length ? <LedgerTable rows={d.ledger} onCorrect={startCorrection} /> : <p className="muted">Sin movimientos.</p>}
       {d.openings.length > 0 && (<><h3>Aperturas</h3><OpeningList rows={d.openings} /></>)}
+    </div>
+  );
+}
+
+/** Asignar o retirar un personaje secreto (Thanos): motivo obligatorio, confirmación con el destinatario y auditoría. */
+function SecretAdmin({ d, reload }: { d: UserDetail; reload: () => void }) {
+  const [hero] = useState<HeroId>(SECRET_IDS[0]);
+  const [reason, setReason] = useState('');
+  const [preview, setPreview] = useState<(SecretPreview & { key: string }) | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const has = d.heroes.some((h) => h.hero === hero);
+  const action: 'grant' | 'revoke' = has ? 'revoke' : 'grant';
+  const body = () => ({ userId: d.user.id, hero, action, reason: reason.trim() });
+  return (
+    <div className="secret-admin">
+      <h3>Personaje secreto: {HEROES[hero].name}</h3>
+      <p className="muted small">
+        {has ? `${d.user.name} lo tiene.` : `${d.user.name} no lo tiene.`} No sale en cofres ni cuenta en la colección pública; sólo se usa en salas casuales con «Personajes especiales», sin recompensas.
+      </p>
+      <form
+        className="grant"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setBusy(true);
+          setMsg(null);
+          try {
+            const pv = await account.call<SecretPreview>('POST', '/api/admin/secret/preview', body());
+            setPreview({ ...pv, key: newKey() });
+          } catch (er) {
+            setMsg({ ok: false, text: errText(er) });
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <label className="block">Motivo (obligatorio, queda en la auditoría)
+          <input value={reason} minLength={5} maxLength={200} required onChange={(e) => { setReason(e.target.value); setPreview(null); }} />
+        </label>
+        <div className="btn-row">
+          <button type="submit" disabled={busy}>{has ? `Revisar retiro de ${HEROES[hero].name}` : `Revisar asignación de ${HEROES[hero].name}`}</button>
+        </div>
+      </form>
+      {preview && (
+        <div className="confirm" role="alert">
+          <p>
+            Se va a <b>{preview.action === 'grant' ? 'ASIGNAR' : 'RETIRAR'}</b> a <b>{preview.heroName}</b> {preview.action === 'grant' ? 'a' : 'de'} <b>{preview.name}</b> (<span className="mono">{preview.userId}</span>).
+          </p>
+          <p className="small">Motivo: {preview.reason}</p>
+          {!preview.valid && <p className="error">{preview.action === 'grant' ? 'Ya lo tiene.' : 'No lo tiene.'}</p>}
+          <div className="btn-row">
+            <button
+              className="primary"
+              disabled={busy || !preview.valid}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  await account.mutate('/api/admin/secret', body(), `${preview.action === 'grant' ? 'Asignar' : 'Retirar'} ${preview.heroName} a ${preview.name}`, preview.key);
+                  setMsg({ ok: true, text: `Listo: ${preview.heroName} ${preview.action === 'grant' ? 'asignado a' : 'retirado de'} ${preview.name}. Verá un aviso al entrar.` });
+                  setReason('');
+                  setPreview(null);
+                  reload();
+                } catch (er) {
+                  setMsg({ ok: false, text: errText(er) });
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >Confirmar</button>
+            <button onClick={() => setPreview(null)} disabled={busy}>Volver</button>
+          </div>
+        </div>
+      )}
+      {msg && <div className={msg.ok ? 'ok-text' : 'error'} role="status">{msg.text}</div>}
+      {d.heroGrants && d.heroGrants.length > 0 && (
+        <ul className="openings">
+          {d.heroGrants.map((g) => (
+            <li key={g.id}>
+              <span>{g.action === 'grant' ? 'Asignado' : 'Retirado'}: {HEROES[g.hero]?.name ?? g.hero}</span>
+              <span className="muted small">por {g.actor_name ?? g.actor_id} · {localTime(g.created_at)} · {g.reason}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

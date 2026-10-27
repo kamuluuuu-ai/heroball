@@ -512,3 +512,122 @@ describe('sala oficial en el servidor', () => {
     expect(calls).toBe(0);
   });
 });
+
+describe('personaje secreto (Thanos)', () => {
+  function fakeClient(id: string, inbox: ServerMsg[]): Client {
+    return { id, nick: '', room: null, ping: 0, send: (m) => inbox.push(typeof m === 'string' ? JSON.parse(m) : m) };
+  }
+  const identify = async (token: string): Promise<AccountInfo | null> => {
+    const u = await sessionUser(auth, bearerHeaders(token));
+    if (!u) return null;
+    await eco.ensureAccount(u.id);
+    return { userId: u.id, name: u.name, roles: await eco.roles(u.id) };
+  };
+  const flush = () => new Promise((r) => setTimeout(r, 120));
+
+  it('sólo un admin lo asigna o retira: motivo, vista previa, sin duplicados, auditoría y aviso', async () => {
+    const admin = await signUp('Admin');
+    await setRole(db, admin.email, 'economy_admin', true, 'test');
+    const u = await signUp('Elegido');
+    const body = (o: Record<string, unknown> = {}) => ({ userId: u.id, hero: 'thanos', action: 'grant', reason: 'premio del torneo', key: key(), ...o });
+    // sin rol: rechazado (aunque se lo pida a sí mismo)
+    expect((await call('POST', '/api/admin/secret', body({ userId: u.id }), u.token)).status).toBe(403);
+    // motivo vacío, héroe no secreto, acción inválida
+    expect((await call('POST', '/api/admin/secret', body({ reason: '' }), admin.token)).status).toBe(400);
+    expect((await call('POST', '/api/admin/secret', body({ hero: 'thor' }), admin.token)).status).toBe(400);
+    expect((await call('POST', '/api/admin/secret', body({ action: 'gift' }), admin.token)).status).toBe(400);
+    // vista previa: nombra al destinatario y no aplica nada
+    const pv = await call('POST', '/api/admin/secret/preview', body(), admin.token);
+    expect(pv.status).toBe(200);
+    expect(pv.body).toMatchObject({ userId: u.id, name: expect.stringContaining('Elegido'), action: 'grant', valid: true, owned: false });
+    expect((await db.query("SELECT 1 FROM hero_unlock WHERE user_id = $1 AND hero = 'thanos'", [u.id])).rowCount).toBe(0);
+    // asignar (idempotente por clave), y un segundo pedido distinto: ya lo tiene
+    const k = key();
+    const [g1, g2] = await Promise.all([call('POST', '/api/admin/secret', body({ key: k }), admin.token), call('POST', '/api/admin/secret', body({ key: k }), admin.token)]);
+    expect([g1.status, g2.status]).toEqual([200, 200]);
+    expect((await call('POST', '/api/admin/secret', body(), admin.token)).body.error).toBe('owned');
+    expect((await db.query("SELECT count(*)::int AS n FROM hero_unlock WHERE user_id = $1 AND hero = 'thanos'", [u.id])).rows[0].n).toBe(1);
+    // el usuario lo ve en su colección y lo puede equipar; no lo puede "desbloquear"
+    const me = await call('GET', '/api/me', undefined, u.token);
+    expect(me.body.heroes.some((h: { hero: string }) => h.hero === 'thanos')).toBe(true);
+    expect((await call('POST', '/api/heroes/equip', { hero: 'thanos' }, u.token)).status).toBe(200);
+    // retirar: vuelve a Spider-Man, y retirarlo otra vez no tiene efecto
+    expect((await call('POST', '/api/admin/secret', body({ action: 'revoke', reason: 'fin del premio' }), admin.token)).status).toBe(200);
+    expect((await call('POST', '/api/admin/secret', body({ action: 'revoke', reason: 'fin del premio' }), admin.token)).body.error).toBe('not_owned');
+    expect((await db.query('SELECT equipped_hero FROM wallet WHERE user_id = $1', [u.id])).rows[0].equipped_hero).toBe('spider');
+    // auditoría (sólo inserción) y avisos
+    const audit = await db.query('SELECT action, actor_id, reason FROM hero_grant WHERE user_id = $1 ORDER BY id', [u.id]);
+    expect(audit.rows.map((r) => r.action)).toEqual(['grant', 'revoke']);
+    expect(audit.rows.every((r) => r.actor_id === admin.id)).toBe(true);
+    await expect(db.query("UPDATE hero_grant SET reason = 'otro motivo' WHERE user_id = $1", [u.id])).rejects.toThrow();
+    const notes = await db.query("SELECT kind FROM notification WHERE user_id = $1 AND kind LIKE 'hero_%' ORDER BY id", [u.id]);
+    expect(notes.rows.map((r) => r.kind)).toEqual(['hero_grant', 'hero_revoke']);
+    const detail = await call('GET', `/api/admin/users/${u.id}`, undefined, admin.token);
+    expect(detail.body.heroGrants.length).toBe(2);
+  });
+
+  it('nunca se desbloquea con Fragmentos ni sale en cofres', async () => {
+    const u = await signUp();
+    await db.query('UPDATE wallet SET fragments = 100000 WHERE user_id = $1', [u.id]);
+    const r = await call('POST', '/api/heroes/unlock', { hero: 'thanos', key: key() }, u.token);
+    expect(r.status).toBe(403);
+    expect(r.body.error).toBe('secret');
+    await db.query('UPDATE wallet SET standard_chests = 30, elite_chests = 30 WHERE user_id = $1', [u.id]);
+    for (let i = 0; i < 30; i++) {
+      for (const type of ['standard', 'elite']) {
+        const o = await call('POST', '/api/chests/open', { type, key: key() }, u.token);
+        expect(o.status).toBe(200);
+        expect(o.body.hero).not.toBe('thanos');
+      }
+    }
+  });
+
+  it('sala: sólo con «Personajes especiales», cuenta dueña y servidor; nunca oficial ni P2P', async () => {
+    const lobby = new Lobby({ ownedHeroes: eco.adapter().ownedHeroes, settle: async () => [] });
+    const owner = await signUp('Dueño');
+    const other = await signUp('Otro');
+    await db.query("INSERT INTO hero_unlock (user_id, hero, source) VALUES ($1, 'thanos', 'admin')", [owner.id]);
+    const io: ServerMsg[] = [];
+    const co = fakeClient('o1', io);
+    const ho = createHandler(lobby, co, { identify });
+    ho.onMessage(JSON.stringify({ t: 'hello', nick: 'Dueño', v: 1, token: owner.token }));
+    await flush();
+    // sala casual sin especiales: rechazado aunque sea suyo
+    ho.onMessage(JSON.stringify({ t: 'create', name: 'Casual', settings: { mode: 'heroes' } }));
+    const room = co.room!;
+    ho.onMessage(JSON.stringify({ t: 'hero', hero: 'thanos' }));
+    await flush();
+    expect(room.members.get('o1')!.hero).not.toBe('thanos');
+    // con especiales: aceptado; la sala no puede ser oficial
+    ho.onMessage(JSON.stringify({ t: 'settings', settings: { specials: true, official: true } }));
+    await flush();
+    expect(io.some((m) => m.t === 'error' && /no puede ser oficial/.test(m.msg))).toBe(true);
+    ho.onMessage(JSON.stringify({ t: 'settings', settings: { specials: true } }));
+    await flush();
+    expect(room.specials).toBe(true);
+    expect(room.setSettings(room.hostId, { official: true })).not.toBeNull();
+    expect(room.official).toBe(false);
+    ho.onMessage(JSON.stringify({ t: 'hero', hero: 'thanos' }));
+    await flush();
+    expect(room.members.get('o1')!.hero).toBe('thanos');
+    // otra cuenta sin Thanos en la misma sala: rechazado por el servidor
+    const xo: ServerMsg[] = [];
+    const cx = fakeClient('x1', xo);
+    const hx = createHandler(lobby, cx, { identify });
+    hx.onMessage(JSON.stringify({ t: 'hello', nick: 'Otro', v: 1, token: other.token }));
+    await flush();
+    hx.onMessage(JSON.stringify({ t: 'join', room: room.id }));
+    hx.onMessage(JSON.stringify({ t: 'hero', hero: 'thanos' }));
+    await flush();
+    expect(room.members.get('x1')!.hero).not.toBe('thanos');
+    expect(xo.some((m) => m.t === 'error')).toBe(true);
+    // al retirarlo, deja de valer en la sala
+    await db.query("DELETE FROM hero_unlock WHERE user_id = $1 AND hero = 'thanos'", [owner.id]);
+    await lobby.refreshOwned(owner.id);
+    expect(room.members.get('o1')!.hero).toBe('spider');
+    // P2P (sin servidor de cuentas): nunca hay especiales
+    const p2p = new Lobby(null);
+    const pr = p2p.create('p2p', { specials: true });
+    expect(pr.specials).toBe(false);
+  });
+});

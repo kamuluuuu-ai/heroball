@@ -173,6 +173,10 @@ Capturas reales tomadas del servidor local con PostgreSQL embebido y cuentas de 
 - Correcciones: sólo como movimiento compensatorio que referencia al original (*Corregir* en una entrega). Nada se
   edita ni se borra.
 - El destinatario ve un aviso la próxima vez que entra, aunque estuviera desconectado.
+- **Personaje secreto (Thanos)**: en el detalle de la cuenta, *Revisar asignación* / *Revisar retiro* con motivo
+  obligatorio; la confirmación nombra al destinatario y su id. Es idempotente, no duplica, no toca otros héroes y
+  queda en la auditoría `hero_grant` (sólo inserción) con quién, cuándo y por qué. Al retirarlo, si lo tenía
+  equipado vuelve a Spider-Man, y si estaba en una sala deja de valer en el próximo saque.
 - Moderación en salas: con rol `moderator`, en el servidor el rol llega con la sesión verificada; en salas P2P el
   backend firma el desafío de la conexión (la clave privada nunca llega al navegador). La marca **MOD** identifica
   al moderador verificado y **✔** a las cuentas verificadas.
@@ -184,12 +188,16 @@ Capturas reales tomadas del servidor local con PostgreSQL embebido y cuentas de 
 | Moverse (8 direcciones) | WASD o flechas | joystick (mitad izquierda) |
 | Patear | Espacio o X | botón ⚽ |
 | Poder 1 / Poder 2 | Q / E | botones Q / E |
+| Thanos: elegir gema / activar / siguiente | 1–5 / Q / E | tocar la gema / Q / E |
+| Responder el quiz de Baldi | 1, 2 o 3 | tocar la respuesta |
 | Chat | Enter | — |
 | Menú / sala | Esc | botón Menú |
 | Volver al centro (entrenamiento) | R | menú |
 
 Debajo de cada poder el HUD muestra su nombre y su estado en texto: *Listo*, *Activo*, *Recargando* (con segundos),
-*Aturdido* o *En pausa* (sin cooldowns: *LISTO* / *ACTIVA*).
+*Aturdido*, *Atrapado*, *Controlado*, *Quiz* o *En pausa* (sin cooldowns: *LISTO* / *ACTIVA*). CJ muestra sus tres
+balas (●/○) y la recarga; Thanos, una barra con las cinco gemas (tecla, nombre, objetivo, estado y recarga). Las
+teclas 1–5 no se capturan mientras escribís en el chat; durante el quiz, 1–3 responden y no cambian la gema.
 
 ## Modos
 
@@ -208,7 +216,7 @@ simulación (no el cliente), hay topes de proyectiles, zonas y eventos, y la sal
 **Efectos visuales**: en Ajustes, *Efectos: Completos / Reducidos* (también se respeta `prefers-reduced-motion`).
 Reducidos quita partículas decorativas y conserva las señales esenciales (avisos, áreas reales, aturdimientos).
 
-Entrenamiento (sin rival ni límite) y partidos contra bots (1v1 a 3v3, bots con cualquiera de los 12 héroes)
+Entrenamiento (sin rival ni límite) y partidos contra bots (1v1 a 3v3, bots con cualquiera de los 17 héroes públicos)
 funcionan sin conexión y no dan recompensas. Todos los héroes se pueden usar en entrenamiento, bots y salas casuales;
 en salas oficiales el servidor sólo acepta los de tu colección.
 
@@ -231,17 +239,39 @@ frecuencia en cofres, no el poder. Tabla generada desde `shared/config.ts` con `
 | Flash | Épico · Movilidad | **Velocidad extrema**: Durante 2 s: aceleración ×2 y velocidad máxima ×1,9. CD 10 s | **Estela acelerada**: Durante 1,5 s acelerás ×1,5 y dejás una estela (1,2 s) que frena 30 % a los rivales que la pisan. No se suma con Q: vale la mejor. CD 11 s |
 | Thor | Legendario · Defensa | **Mjolnir electrificado**: Martillo grande (10R) que apunta solo: un impacto fuerte. Si golpea la pelota la electrifica 1,5 s: quien la toque queda aturdido 0,35 s (también vos). CD 10 s | **Rayo paralizante**: Marca al rival más cercano delante tuyo (10R); a los 0,4 s cae un rayo (1,3R) que aturde 0,55 s a los rivales que sigan ahí. Sin objetivo no gasta la recarga. CD 12 s |
 | Doctor Strange | Legendario · Control | **Rebobinar**: Pelota a menos de 12R: vuelve a la posición y velocidad de hace 1,5 s (sólo de esta jugada). No cambia jugadores, marcador ni reloj. CD 12 s | **Portal al arco**: Tras 0,35 s de canalización aparecés delante del arco de la mitad donde estás. Un aturdimiento lo interrumpe. CD 14 s |
+| Homero | Épico · Control | **Rosquilla atrapante**: Rosquilla (10R) que apunta sola a la pelota o a un rival. Rival: no puede moverse 0,7 s (sí patear y usar poderes sin desplazamiento). Pelota: pierde 25 % de velocidad y durante 2 s patadas y poderes la impulsan 40 % menos. CD 10 s | **Charco de cerveza**: Tira una cerveza 4R adelante: charco de 3R durante 3 s donde todos (también vos) resbalan y cuesta frenar o girar. La pelota no cambia. CD 12 s |
+| CJ | Épico · Ataque | **Cargador de tres balas**: 3 balas (12R) que apuntan solas, una por pulsación (mínimo 0,3 s entre balas). Pelota: impulso ×0,75 patada; rival: empujón sin aturdir. Tras la tercera, recarga 10 s. CD 10 s | **Jetpack**: Durante 2 s: aceleración +45 % y velocidad máxima +35 %. Seguís chocando con todo (el vuelo es visual). CD 12 s |
+| Baldi | Legendario · Control | **Regla de detención**: Regla (12R) que apunta sola a la pelota: la deja quieta una vez, sin congelarla. No afecta jugadores. CD 9 s | **Quiz matemático**: Al rival más alineado delante tuyo (10R): tras 0,4 s recibe una cuenta (suma o resta) y no puede jugar hasta responder bien (máximo 2,5 s). Sin objetivo no gasta la recarga. CD 35 s |
+| Ibai | Raro · Defensa | **Guante de boxeo**: Golpe corto (1,5R desde tu borde) al rival más cercano delante tuyo: empujón fuerte, sin aturdir. No toca pelota ni aliados. CD 8 s | **Cuerpo gigante**: Durante 3 s: tamaño ×1,35 (también el choque), masa ×1,8 y 25 % menos aceleración. Sólo crece en el espacio libre. CD 13 s |
+| Verity | Épico · Ataque | **Enfado**: Durante 5 s: aceleración y velocidad +20 % y patada +30 %. CD 13 s | **TNT**: Tira una TNT (8R) que apunta sola a la pelota o a un rival; el lugar de caída queda fijo y explota 2 s después de caer: 5R que empuja pelota y a todos (también a vos). CD 13 s |
 
-Balance medido con bots (`tests/balance.test.ts`, 1v1 contra cada inicial): todos los nuevos quedan entre 40 % y
-60 % de los goles. Todos los valores (alcances en R, impulsos en K = patada normal, tiempos en segundos) están
+**Thanos** (secreto, sólo salas casuales con personajes especiales). Q: Activa la gema seleccionada (teclas 1–5 para elegir). E: Pasa a la siguiente gema.
+
+| Tecla | Gema | Efecto | CD |
+|---|---|---|---|
+| 1 | Gema del Tiempo | Rival a menos de 10R: vuelve a su posición y velocidad de hace 1,5 s (sólo de esta jugada). | 14 s |
+| 2 | Gema de la Mente | Rival a menos de 8R y a la vista: durante 0,8 s se mueve con tus direcciones (vos quedás quieto). No lo hace patear ni usar poderes. | 16 s |
+| 3 | Gema de la Realidad | Durante 0,8 s los rivales ven una pelota falsa junto a vos y no ven la real (la real sigue jugándose). | 15 s |
+| 4 | Gema del Espacio | Pelota a menos de 12R: tras 0,25 s aparecés junto a ella sin moverla. | 12 s |
+| 5 | Gema del Poder | Tu próxima patada (dentro de 2 s) sale +80 % más fuerte. | 10 s |
+
+Balance medido con bots (`tests/balance.test.ts`, 1v1 contra cada inicial; varía entre corridas): la prueba exige
+que ningún héroe no inicial supere el 70 % de los goles. En la última corrida: Homero 42 %, CJ 55 %, Baldi 49 %,
+Ibai 35 %, Verity 53 % y Thanos 41 % (los bots usan poco el guante de Ibai y no usan las gemas de Thanos). Todos los valores (alcances en R, impulsos en K = patada normal, tiempos en segundos) están
 centralizados en `POWERS` y `SUPER_POWERS` de `shared/config.ts`; la tabla muestra los de Héroes.
 
 Reglas comunes:
 
 - Los poderes se activan por flanco (mantener la tecla no repite), no funcionan en saque, pausa, celebración ni
-  como espectador. Nada cambia radios físicos ni hay vida o daño.
-- **Aturdimiento**: bloquea moverse, patear y poderes; los choques y empujes siguen. No se apila y deja 0,8 s de
-  inmunidad. Una tecla mantenida durante el aturdimiento no se dispara al terminar.
+  como espectador. No hay vida o daño, y lo visual nunca cambia la colisión: la única excepción es el Cuerpo
+  gigante de Ibai, que cambia su radio físico de a poco y sólo en espacio libre.
+- **Autoapuntado compartido** (todos los poderes que se lanzan): cono de 100° alrededor de la última dirección de
+  movimiento; gana el menor ángulo, luego la menor distancia, luego el id estable; con línea de visión (los postes
+  tapan). Anticipación moderada; la trayectoria queda fija al lanzar. Nunca aliados ni la pelota protegida. Los de
+  área (TNT, misil) apuntan al punto de caída. La mira cambia de objetivo sólo si el nuevo se sostiene 150 ms.
+- **Controles incapacitantes** (aturdimiento, rosquilla, Gema de la Mente, quiz): no se apilan, nunca más de 1 s
+  seguido (el quiz tiene su propio máximo de 2,5 s) y al terminar dejan 1 s de inmunidad. Una tecla mantenida
+  durante el control no se dispara al terminar.
 - **Protección del Capitán** (prioridad máxima): mientras dura, ningún poder modifica la pelota; los proyectiles
   que la tocan se consumen, los efectos radiales siguen empujando jugadores. No deshace impactos anteriores ni se
   suma con otra protección. Quita la electricidad y la atracción activas sin cambiar posición ni velocidad.
@@ -250,8 +280,17 @@ Reglas comunes:
   (jugadores en orden, luego proyectiles, hilos y zonas por creación).
 - La dirección del misil la sortea la simulación autoritativa con el generador del estado: la reconciliación del
   cliente no la vuelve a sortear. Portal y rebobinado son saltos (no se interpolan como recorrido).
-- Gol, reinicio y fin limpian proyectiles, zonas, aturdimientos, electricidad, protección, portales e historial de
-  la pelota. Si un jugador se va, se quitan sus proyectiles, zonas y su protección.
+- Gol, reinicio y fin limpian proyectiles, zonas (TNT, charcos, quiz), aturdimientos, controles, electricidad,
+  protección, portales, ilusión, tamaño gigante e historiales (pelota y jugadores). Si un jugador se va, se quitan
+  sus proyectiles, zonas y su protección, se libera a quien controlaba y termina su ilusión.
+- CJ conserva sus balas y su recarga al cambiar de héroe, abrir el menú o reconectarse (el servidor las guarda por
+  cuenta durante el partido).
+
+**Thanos (secreto)**: no sale en cofres, catálogos públicos, contadores, bots ni en la colección de quien no lo
+tiene. Lo asigna o retira un administrador (motivo obligatorio y auditoría). El servidor valida la propiedad; sólo
+se usa en salas **casuales del servidor** con *Personajes especiales* activado, que no dan recompensas (la sala lo
+muestra) y nunca pueden ser oficiales ni P2P. Sin conexión (entrenamiento y bots) no está disponible porque no se
+puede comprobar la propiedad.
 
 ## Arquitectura
 
@@ -294,7 +333,10 @@ dibuja radios, alcance de patada y posiciones de red.
 
 ## Cambios (ordenados por importancia)
 
-0. **Remodelación de habilidades** (sin tocar Spider-Man ni Batman): láser de Superman, flecha explosiva, dash de
+0. **Seis personajes nuevos**: Homero, CJ, Baldi, Ibai y Verity (en cofres, composición versión 2) y Thanos
+   (secreto, asignado por administración, sólo salas casuales con personajes especiales); autoapuntado compartido
+   para todos los poderes que se lanzan, controles incapacitantes con tope de 1 s e inmunidad, retratos propios.
+1. **Remodelación de habilidades** (sin tocar Spider-Man ni Batman): láser de Superman, flecha explosiva, dash de
    Black Widow, escudo encadenado y protección de la pelota del Capitán, repulsor y misil de Iron Man, Flash más
    rápido con estela que acelera y frena de verdad, Mjolnir electrificado y rayo paralizante de Thor, rebobinar y
    portal al arco de Doctor Strange; aturdimiento con inmunidad, opción «Sin cooldowns», efectos reducidos y
@@ -317,11 +359,18 @@ dibuja radios, alcance de patada y posiciones de red.
 ## Pruebas
 
 ```bash
-npm test          # 210 pruebas (incluye PostgreSQL embebido real en tests/db.test.ts)
+npm test          # 258 pruebas (incluye PostgreSQL embebido real en tests/db.test.ts)
 npm run typecheck
 ```
 
-Última ejecución: 13 archivos, 210 pruebas, todas pasan. `tests/rework.test.ts` cubre cada habilidad remodelada en
+Última ejecución: 15 archivos, 258 pruebas, todas pasan. `tests/render.test.ts` dibuja partidas con todos los efectos nuevos sobre un canvas simulado. `tests/newheroes.test.ts` cubre los seis personajes
+nuevos en Héroes y Súper, el autoapuntado (pelota, rivales, aliados, pelota protegida, poste, fuera de alcance,
+punto de caída de la TNT), las tres balas y la recarga de CJ, rosquilla, charco, crecimiento sin superposición,
+quiz (respuesta, error, tiempo, inmunidad, bots), TNT al reiniciar y al desconectarse, historial que no cruza
+jugadas, ilusión sin efecto físico, Gema del Espacio sin superposición, Gema de la Mente con tope y
+determinismo. En `tests/db.test.ts`: asignación y retiro de Thanos (permisos, motivo, vista previa, duplicados,
+auditoría inmodificable, avisos), sin desbloqueo ni cofres, y salas que lo rechazan sin especiales, sin propiedad
+o en P2P. `tests/rework.test.ts` cubre cada habilidad remodelada en
 Héroes y Súper (impulso efectivo igual al configurado, radio y ancho reales), dash y carrera sin atravesar, escudo
 sin bucles y con elección determinista, protección contra todos los poderes, misil con sorteo único y el mismo
 resultado en dos clientes en red, electricidad una vez por jugador, aturdimiento e inmunidad, rebobinar (inicio,

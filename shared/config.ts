@@ -130,8 +130,8 @@ export const AIM = {
   lead: 0.6,
   /** Anticipación de los poderes de área (TNT, misil) sobre su tiempo de caída. */
   areaLead: 0.5,
-  /** El marcador conserva su objetivo si el nuevo mejor no mejora el ángulo al menos esto (grados). */
-  stickyDeg: 8,
+  /** El marcador sólo cambia de objetivo si el nuevo se sostiene este tiempo (ms; sólo visual, sin parpadeo). */
+  switchMs: 150,
 };
 
 /** Topes técnicos por partido (evitan que un abuso de poderes bloquee la simulación). */

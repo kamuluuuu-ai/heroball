@@ -16,7 +16,37 @@ export const IN = {
   Q: 32,
   E: 64,
 } as const;
-export const INPUT_MASK = 127;
+/**
+ * Bits 7–9: un número 1–5 (0 = nada). Thanos elige gema con 1–5; con un quiz
+ * abierto, 1–3 es la respuesta. Viaja como entrada: la autoridad lo valida.
+ */
+export const IN_NUM_SHIFT = 7;
+export const IN_NUM_MASK = 7 << IN_NUM_SHIFT;
+export const INPUT_MASK = 1023;
+export const inNum = (bits: number): number => (bits & IN_NUM_MASK) >> IN_NUM_SHIFT;
+
+/** Quiz de Baldi abierto sobre un jugador. */
+export interface Quiz {
+  /** Quién lo lanzó. */
+  by: string;
+  text: string;
+  opts: [number, number, number];
+  /** Índice de la respuesta correcta en `opts`. */
+  answer: number;
+  ticks: number;
+  max: number;
+  /** Respuestas incorrectas dadas (no alargan el quiz). */
+  wrong: number;
+}
+
+/** Ilusión de la Gema de la Realidad: los rivales de `team` ven una pelota falsa en (x, y). */
+export interface Illusion {
+  by: string;
+  team: Team;
+  x: number;
+  y: number;
+  ticks: number;
+}
 
 export interface PlayerState {
   id: string;
@@ -49,6 +79,31 @@ export interface PlayerState {
   /** Stun: sin moverse, patear ni usar poderes (sigue chocando). Luego `stunImmune` ticks de inmunidad. */
   stun: number;
   stunImmune: number;
+  /** Atrapado por la rosquilla: sin movimiento voluntario (patea y usa poderes sin desplazamiento). */
+  trap: number;
+  /** Control mental (Gema de la Mente): quién lo mueve y ticks restantes. */
+  mindBy: string | null;
+  mind: number;
+  /** Ticks seguidos de incapacidad (stun, rosquilla, mente): tope STUN.maxTicks. */
+  incapRun: number;
+  /** Charco de cerveza: 0..1 (1 = dentro; al salir baja gradualmente). */
+  slip: number;
+  /** CJ: jetpack (ticks), balas en el cargador y espera mínima entre balas. */
+  jet: number;
+  ammo: number;
+  shotGap: number;
+  /** Ibai: cuerpo gigante (ticks). El radio físico real está en d.r. */
+  giant: number;
+  /** Verity: enfado (ticks). */
+  anger: number;
+  /** Quiz de Baldi abierto y la inmunidad posterior. */
+  quiz: Quiz | null;
+  quizImmune: number;
+  /** Thanos: gema elegida (0–4), recargas por gema, intervalo compartido y patada potenciada pendiente. */
+  gem: number;
+  gemCd: number[];
+  gemGap: number;
+  powerKick: number;
   /** Desplazamiento con colisiones (Paso lateral, Salto felino): ticks y velocidad. */
   rush: number;
   rushSpeed: number;
@@ -68,7 +123,7 @@ export interface PlayerState {
 
 export interface Projectile {
   id: number;
-  kind: 'web' | 'batarang' | 'hook' | 'arrow' | 'shock' | 'shield' | 'repulsor' | 'hammer';
+  kind: 'web' | 'batarang' | 'hook' | 'arrow' | 'shock' | 'shield' | 'repulsor' | 'hammer' | 'donut' | 'bullet' | 'ruler';
   /** Escudo de vuelta: sólo visual, no golpea nada. */
   returning?: boolean;
   /** Ticks de carga antes de salir (repulsor): sigue al dueño sin chocar. */
@@ -109,10 +164,19 @@ export interface Tether {
  * - 'bolt': Thor, punto fijo que aturde a los rivales dentro.
  * - 'trail': Flash, segmentos de estela (cada punto con su tick de creación).
  * - 'portal': Doctor Strange, destino fijo del teletransporte; pts[0] = origen.
+ * - 'beer': Homero, charco (cae tras `delay`, luego dura `ticks`).
+ * - 'tnt': Verity, punto de caída fijo; pts[0] = punto de lanzamiento; `len` = ticks de vuelo.
+ * - 'quiz': Baldi, aviso sobre `target` antes de abrir el quiz.
+ * - 'punch': Ibai, aviso del guante hacia `target`.
+ * - 'space': Thanos, aviso de la Gema del Espacio (destino al resolver).
+ * - 'mind': Thanos, enlace visual con el rival controlado.
+ * - 'timeGhost': Thanos, recorrido fantasma de la Gema del Tiempo (pts = trayecto).
  */
 export interface Zone {
   id: number;
-  kind: 'pulse' | 'laser' | 'missile' | 'bolt' | 'trail' | 'portal';
+  kind: 'pulse' | 'laser' | 'missile' | 'bolt' | 'trail' | 'portal' | 'beer' | 'tnt' | 'quiz' | 'punch' | 'space' | 'mind' | 'timeGhost';
+  /** Jugador objetivo (quiz, guante, mente). */
+  target?: string;
   owner: string;
   team: Team;
   x: number;
@@ -132,10 +196,10 @@ export interface Zone {
 export type GameEvent =
   | { type: 'kick'; id: string; power: number }
   | { type: 'goal'; team: Team; scorer: string | null }
-  | { type: 'power'; id: string; slot: 'q' | 'e'; hero: HeroId }
+  | { type: 'power'; id: string; slot: 'q' | 'e'; hero: HeroId; gem?: number }
   | { type: 'slam'; x: number; y: number; r: number }
   | { type: 'blink'; id: string; x0: number; y0: number; x1: number; y1: number }
-  | { type: 'boom'; x: number; y: number; r: number; kind: 'arrow' | 'missile' }
+  | { type: 'boom'; x: number; y: number; r: number; kind: 'arrow' | 'missile' | 'tnt' }
   | { type: 'stun'; id: string; ticks: number }
   | { type: 'fizzle'; id: string; slot: 'q' | 'e' }
   | { type: 'rewind'; id: string; x0: number; y0: number; x1: number; y1: number }
@@ -143,6 +207,10 @@ export type GameEvent =
   | { type: 'blocked'; x: number; y: number }
   | { type: 'hit'; x: number; y: number; target: 'ball' | 'player' | 'wall' }
   | { type: 'tether'; id: string }
+  | { type: 'shot'; id: string; x: number; y: number; dx: number; dy: number }
+  | { type: 'quiz'; id: string; by: string; result: 'open' | 'ok' | 'wrong' | 'timeout' }
+  | { type: 'illusion'; by: string; team: Team; result: 'start' | 'end' }
+  | { type: 'gem'; id: string; gem: number }
   | { type: 'kickoff' }
   | { type: 'end'; winner: Team | null }
   | { type: 'overtime' };
@@ -187,4 +255,11 @@ export interface GameState {
   ballHist: number[];
   /** Se incrementa cuando la pelota salta (rebobinado): la vista no interpola ese salto. */
   ballWarp: number;
+  /** Rosquilla en la pelota: ticks con impulsos extra reducidos. */
+  ballDonut: number;
+  /** Historial de los jugadores de esta jugada (Gema del Tiempo): x, y, vx, vy por tick. No viaja en los snapshots. */
+  plHist: Record<string, number[]>;
+  /** Ilusión activa de la Gema de la Realidad y ticks hasta que se permita otra. */
+  illusion: Illusion | null;
+  illusionGap: number;
 }

@@ -12,11 +12,16 @@
 // - Q y E de Flash no se multiplican: se usa el mayor modificador activo.
 // - Un mismo objetivo recibe a lo sumo un impacto por proyectil (aunque se
 //   procese en varios subpasos) y un impulso por explosión o haz.
-// - Lo sorteado (dirección del misil) sale del generador del estado y sólo
-//   avanza al resolverse: reenviar mensajes o reconciliar no lo vuelve a sortear.
-import { LIMITS, PLAYER, POWER_LIMITS, STADIUM, STUN, powersFor, type PowerConfig } from './config';
+// - Lo sorteado (dirección del misil, cuentas del quiz) sale del generador del
+//   estado y sólo avanza al resolverse: reenviar mensajes o reconciliar no lo vuelve a sortear.
+// - Incapacidades (stun, rosquilla, mente): no se suman (prevalece el mayor
+//   tiempo restante), tope STUN.maxTicks seguidos y luego inmunidad. El quiz de
+//   Baldi tiene reglas propias (duración máxima e inmunidad BALDI_QUIZ).
+// - La rosquilla sobre la pelota reduce patadas e impulsos de poderes; la
+//   protección del Capitán la quita y la bloquea.
+import { AIM, BALDI_QUIZ, LIMITS, PLAYER, POWER_LIMITS, STADIUM, STUN, powersFor, type PowerConfig } from './config';
 import { clampSpeed, collideSeg, lineBlocked, stadium } from './physics';
-import type { GameState, PlayerState, Projectile, Zone } from './types';
+import { inNum, type GameState, type PlayerState, type Projectile, type Zone } from './types';
 
 const cfg = (s: GameState): PowerConfig => powersFor(s.mode);
 
@@ -49,6 +54,11 @@ export function accelMult(s: GameState, p: PlayerState): number {
   if (p.fury > 0) m *= c.hulk.fury.accelMult;
   if (p.superSpeed > 0) m *= c.superman.superSpeed.mult;
   m *= flashMult(c, p, 'accelMult');
+  if (p.jet > 0) m *= c.cj.jetpack.accelMult;
+  if (p.anger > 0) m *= c.verity.anger.accelMult;
+  if (p.giant > 0) m *= c.ibai.giant.accelMult;
+  // charco de cerveza: menos agarre (cuesta frenar y girar)
+  if (p.slip > 0) m *= 1 - (1 - c.homer.beer.grip) * p.slip;
   return m;
 }
 
@@ -63,6 +73,8 @@ export function speedLimitMult(s: GameState, p: PlayerState): number {
   let m = flashMult(c, p, 'speedMult');
   if (p.superSpeed > 0) m *= c.superman.superSpeed.mult;
   if (p.capSlowTicks > 0) m *= 1 - p.capSlow;
+  if (p.jet > 0) m *= c.cj.jetpack.speedMult;
+  if (p.anger > 0) m *= c.verity.anger.speedMult;
   return m;
 }
 
@@ -75,7 +87,39 @@ export function pushFactor(_s: GameState, o: PlayerState): number {
 }
 
 export function kickMult(s: GameState, p: PlayerState): number {
-  return p.fury > 0 ? cfg(s).hulk.fury.kickMult : 1;
+  const c = cfg(s);
+  let m = p.fury > 0 ? c.hulk.fury.kickMult : 1;
+  if (p.anger > 0) m *= c.verity.anger.kickMult;
+  return m;
+}
+
+/** Gema del Poder pendiente: multiplicador de la próxima patada (la protección del Capitán lo anula). */
+export function powerKickMult(s: GameState, p: PlayerState): number {
+  return p.powerKick > 0 && !ballGuarded(s) ? cfg(s).thanos.power.kickMult : 1;
+}
+
+/** Factor de los impulsos extra (patadas y poderes) que recibe la pelota: la rosquilla los reduce. */
+export function ballImpulseFactor(s: GameState): number {
+  return s.ballDonut > 0 ? 1 - cfg(s).homer.donut.impulseCut : 1;
+}
+
+/** Masa inversa del jugador: la mayor masa activa (Furia, Cuerpo gigante); no se multiplican. */
+export function playerInvMass(s: GameState, p: PlayerState): number {
+  const c = cfg(s);
+  let mult = 1;
+  if (p.fury > 0) mult = Math.max(mult, c.hulk.fury.massMult);
+  if (p.giant > 0) mult = Math.max(mult, c.ibai.giant.massMult);
+  return PLAYER.invMass / mult;
+}
+
+/** ¿El jugador no puede actuar (stun, control mental o quiz)? La rosquilla sólo impide moverse. */
+export function incapacitated(p: PlayerState): boolean {
+  return p.stun > 0 || p.mind > 0 || p.quiz !== null;
+}
+
+/** ¿Algún rival está bajo el control mental de este jugador? */
+export function controlling(s: GameState, p: PlayerState): PlayerState | undefined {
+  return s.players.find((o) => o.mind > 0 && o.mindBy === p.id);
 }
 
 /** ¿La pelota tiene la protección del Capitán? */
@@ -87,8 +131,9 @@ export function ballGuarded(s: GameState): boolean {
 function pushBall(s: GameState, ux: number, uy: number, impulse: number, owner: string): boolean {
   if (ballGuarded(s)) return false;
   const b = s.ball;
-  b.vx += ux * impulse * b.invMass;
-  b.vy += uy * impulse * b.invMass;
+  const k = impulse * b.invMass * ballImpulseFactor(s);
+  b.vx += ux * k;
+  b.vy += uy * k;
   clampSpeed(b, LIMITS.ballMaxSpeed - 1);
   s.lastTouch = owner;
   return true;
@@ -102,17 +147,32 @@ function pushPlayer(s: GameState, o: PlayerState, ux: number, uy: number, impuls
   clampSpeed(o.d, LIMITS.playerMaxSpeed);
 }
 
-/** Aturde a un jugador. No se apila ni se aplica durante la inmunidad posterior. */
-export function applyStun(s: GameState, o: PlayerState, ticks: number): boolean {
-  if (ticks <= 0 || o.stun > 0 || o.stunImmune > 0) return false;
-  o.stun = ticks;
-  o.kickArmed = false;
+/**
+ * Incapacidad (stun, rosquilla o control mental). No se suman: sólo queda la
+ * de mayor tiempo restante. Como máximo STUN.maxTicks seguidos y, al terminar,
+ * STUN.immuneTicks de inmunidad a todas.
+ */
+export function applyIncap(s: GameState, o: PlayerState, kind: 'stun' | 'trap' | 'mind', ticks: number, by: string | null = null): boolean {
+  if (ticks <= 0 || o.stunImmune > 0) return false;
+  const t = Math.min(ticks, STUN.maxTicks - o.incapRun);
+  if (t <= Math.max(o.stun, o.trap, o.mind)) return false;
+  o.stun = kind === 'stun' ? t : 0;
+  o.trap = kind === 'trap' ? t : 0;
+  o.mind = kind === 'mind' ? t : 0;
+  o.mindBy = kind === 'mind' ? by : null;
+  if (kind !== 'trap') o.kickArmed = false;
   o.rush = 0;
   o.dash = 0;
-  // un stun interrumpe la canalización del portal
-  s.zones = s.zones.filter((z) => !(z.owner === o.id && z.kind === 'portal'));
-  s.events.push({ type: 'stun', id: o.id, ticks });
+  // interrumpe teletransportes en canalización y su propio gancho
+  s.zones = s.zones.filter((z) => !(z.owner === o.id && (z.kind === 'portal' || z.kind === 'space')));
+  s.tethers = s.tethers.filter((tt) => !(tt.owner === o.id && tt.kind === 'grapple'));
+  if (kind === 'stun') s.events.push({ type: 'stun', id: o.id, ticks: t });
   return true;
+}
+
+/** Aturde a un jugador (ver applyIncap). */
+export function applyStun(s: GameState, o: PlayerState, ticks: number): boolean {
+  return applyIncap(s, o, 'stun', ticks);
 }
 
 export interface AimTarget {
@@ -122,91 +182,122 @@ export interface AimTarget {
   y: number;
 }
 
-/** Posición anticipada de un objetivo para un proyectil de cierta velocidad (dos iteraciones). */
-function lead(p: PlayerState, x: number, y: number, vx: number, vy: number, speed: number): [number, number] {
+/** Posición anticipada de un objetivo para un proyectil de cierta velocidad (dos iteraciones), escalada por `k`. */
+function lead(p: PlayerState, x: number, y: number, vx: number, vy: number, speed: number, k = 1): [number, number] {
   let tx = x;
   let ty = y;
   for (let i = 0; i < 2; i++) {
-    const time = Math.hypot(tx - p.d.x, ty - p.d.y) / speed;
+    const time = (Math.hypot(tx - p.d.x, ty - p.d.y) / speed) * k;
     tx = x + vx * time;
     ty = y + vy * time;
   }
   return [tx, ty];
 }
 
-/** Medio ángulo (grados) delante de la dirección apuntada donde los disparos buscan objetivo. */
-const AIM_CONE = 90;
-
 /**
- * Qué busca el autoapuntado de cada Q que se dispara: sólo los objetivos a los
- * que el proyectil les hace algo (la flecha busca la pelota; la descarga
- * atraviesa la pelota y frena rivales). null: la Q no se autoapunta. El láser
- * anticipa el objetivo según su aviso (velocidad equivalente alcance/aviso);
- * sin objetivo va en la última dirección de movimiento.
+ * Qué busca el autoapuntado de cada poder que se lanza: sólo los objetivos a
+ * los que les hace algo. `speed` sirve para anticipar; `area` (ticks de vuelo)
+ * marca los poderes de área, que apuntan al punto de caída. null: el poder no
+ * se autoapunta.
  */
-function aimSpec(P: PowerConfig, hero: PlayerState['hero']): { range: number; speed: number; cone: number; ball: boolean; rivals: boolean } | null {
+export interface AimSpec { range: number; speed: number; ball: boolean; rivals: boolean; area?: number }
+export function aimSpec(P: PowerConfig, hero: PlayerState['hero'], slot: 'q' | 'e'): AimSpec | null {
+  if (slot === 'e') {
+    if (hero === 'verity') return { range: P.verity.tnt.range, speed: 1, ball: true, rivals: true, area: P.verity.tnt.flightTicks };
+    return null;
+  }
   switch (hero) {
     case 'spider':
-      return P.spider.web.autoAim ? { ...P.spider.web, cone: 180, ball: true, rivals: P.spider.web.grabsRivals } : null;
+      return P.spider.web.autoAim ? { range: P.spider.web.range, speed: P.spider.web.speed, ball: true, rivals: P.spider.web.grabsRivals } : null;
     case 'batman':
-      return P.batman.batarang.autoAim ? { ...P.batman.batarang, cone: P.batman.batarang.autoAimCone, ball: true, rivals: true } : null;
+      return P.batman.batarang.autoAim ? { range: P.batman.batarang.range, speed: P.batman.batarang.speed, ball: true, rivals: true } : null;
     case 'superman':
-      return { range: P.superman.laser.range, speed: P.superman.laser.range / Math.max(1, P.superman.laser.windup), cone: AIM_CONE, ball: true, rivals: true };
+      return { range: P.superman.laser.range, speed: P.superman.laser.range / Math.max(1, P.superman.laser.windup), ball: true, rivals: true };
     case 'hawkeye':
-      return { ...P.hawkeye.arrow, cone: AIM_CONE, ball: true, rivals: false };
+      return { range: P.hawkeye.arrow.range, speed: P.hawkeye.arrow.speed, ball: true, rivals: false };
     case 'widow':
-      return { ...P.widow.shock, cone: AIM_CONE, ball: false, rivals: true };
+      return { range: P.widow.shock.range, speed: P.widow.shock.speed, ball: false, rivals: true };
     case 'cap':
-      return { ...P.cap.shield, cone: AIM_CONE, ball: true, rivals: true };
+      return { range: P.cap.shield.range, speed: P.cap.shield.speed, ball: true, rivals: true };
     case 'ironman':
-      return { ...P.ironman.repulsor, cone: AIM_CONE, ball: true, rivals: true };
+      return { range: P.ironman.repulsor.range, speed: P.ironman.repulsor.speed, ball: true, rivals: true };
     case 'thor':
-      return { ...P.thor.hammer, cone: AIM_CONE, ball: true, rivals: true };
+      return { range: P.thor.hammer.range, speed: P.thor.hammer.speed, ball: true, rivals: true };
+    case 'homer':
+      return { range: P.homer.donut.range, speed: P.homer.donut.speed, ball: true, rivals: true };
+    case 'cj':
+      return { range: P.cj.gun.range, speed: P.cj.gun.speed, ball: true, rivals: true };
+    case 'baldi':
+      return { range: P.baldi.ruler.range, speed: P.baldi.ruler.speed, ball: true, rivals: false };
     default:
       return null;
   }
 }
 
 /**
- * Autoapuntado de las Q que se disparan (Spider-Man, Batman, Hawkeye, Black
- * Widow, Capitán América, Iron Man y Thor). Devuelve el objetivo y la dirección
- * de lanzamiento, anticipando el movimiento del objetivo; null si no hay
- * objetivo válido (se usa la dirección apuntada).
+ * Elección de objetivo compartida: dentro del alcance (borde a borde), a la
+ * vista y dentro del cono de ±coneHalf grados alrededor de la dirección
+ * apuntada. Gana la menor desviación angular, luego la menor distancia y luego
+ * el id estable (la pelota primero). Nunca aliados ni la pelota protegida
+ * (ningún poder la afecta).
  */
-export function autoAim(s: GameState, p: PlayerState): { target: AimTarget; dx: number; dy: number } | null {
-  const spec = aimSpec(cfg(s), p.hero);
-  if (!spec) return null;
-  const { range, speed, cone, rivals } = spec;
-
-  const cands: { t: AimTarget; vx: number; vy: number; r: number }[] = [];
-  if (spec.ball) cands.push({ t: { kind: 'ball', id: null, x: s.ball.x, y: s.ball.y }, vx: s.ball.vx, vy: s.ball.vy, r: s.ball.r });
-  if (rivals) {
-    for (const o of s.players) {
-      if (o.team !== p.team) cands.push({ t: { kind: 'player', id: o.id, x: o.d.x, y: o.d.y }, vx: o.d.vx, vy: o.d.vy, r: o.d.r });
+export function pickTarget(s: GameState, p: PlayerState, o: { range: number; ball: boolean; rivals: boolean; coneHalf?: number; filter?: (q: PlayerState) => boolean }): AimTarget | null {
+  const cos = Math.cos(((o.coneHalf ?? AIM.coneHalf) * Math.PI) / 180);
+  const cands: { t: AimTarget; r: number }[] = [];
+  if (o.ball && !ballGuarded(s)) cands.push({ t: { kind: 'ball', id: null, x: s.ball.x, y: s.ball.y }, r: s.ball.r });
+  if (o.rivals) {
+    for (const q of s.players) {
+      if (q.team !== p.team && (!o.filter || o.filter(q))) cands.push({ t: { kind: 'player', id: q.id, x: q.d.x, y: q.d.y }, r: q.d.r });
     }
   }
-  const cosCone = Math.cos((cone * Math.PI) / 180);
-  let best: { target: AimTarget; dx: number; dy: number } | null = null;
-  let bestScore = -Infinity;
+  let best: AimTarget | null = null;
+  let bestAng = Infinity;
+  let bestDist = Infinity;
+  let bestId = '';
   for (const c of cands) {
-    const [tx, ty] = lead(p, c.t.x, c.t.y, c.vx, c.vy, speed);
-    const dx = tx - p.d.x;
-    const dy = ty - p.d.y;
+    const dx = c.t.x - p.d.x;
+    const dy = c.t.y - p.d.y;
     const dist = Math.hypot(dx, dy);
-    if (dist === 0 || dist - p.d.r - c.r > range) continue;
-    const nx = dx / dist;
-    const ny = dy / dist;
-    const align = nx * p.ax + ny * p.ay;
-    if (align < cosCone - 1e-9) continue;
+    if (dist === 0 || dist - p.d.r - c.r > o.range) continue;
+    const align = (dx * p.ax + dy * p.ay) / dist;
+    if (align < cos - 1e-9) continue;
     if (lineBlocked(p.d.x, p.d.y, c.t.x, c.t.y)) continue;
-    // el más alineado con la dirección apuntada; a igual alineación, el más cercano
-    const score = align * 2 - dist / range;
-    if (score > bestScore) {
-      bestScore = score;
-      best = { target: c.t, dx: nx, dy: ny };
+    const ang = Math.acos(Math.max(-1, Math.min(1, align)));
+    const id = c.t.id ?? '';
+    const better = ang < bestAng - 1e-6 || (Math.abs(ang - bestAng) <= 1e-6 && (dist < bestDist - 1e-6 || (Math.abs(dist - bestDist) <= 1e-6 && id < bestId)));
+    if (better) {
+      best = c.t;
+      bestAng = ang;
+      bestDist = dist;
+      bestId = id;
     }
   }
   return best;
+}
+
+/**
+ * Autoapuntado de los poderes que se lanzan (proyectiles, láser, TNT). Elige el
+ * objetivo con pickTarget y devuelve la dirección de lanzamiento con una
+ * anticipación moderada (AIM.lead); la trayectoria queda fija al lanzar. En los
+ * de área, (x, y) es el punto de caída. null: sin objetivo (se usa la dirección apuntada).
+ */
+export function autoAim(s: GameState, p: PlayerState, slot: 'q' | 'e' = 'q'): { target: AimTarget; dx: number; dy: number; x: number; y: number } | null {
+  const spec = aimSpec(cfg(s), p.hero, slot);
+  if (!spec) return null;
+  const t = pickTarget(s, p, spec);
+  if (!t) return null;
+  const d = t.kind === 'ball' ? s.ball : findPlayer(s, t.id!)!.d;
+  let tx: number;
+  let ty: number;
+  if (spec.area !== undefined) {
+    tx = t.x + d.vx * spec.area * AIM.areaLead;
+    ty = t.y + d.vy * spec.area * AIM.areaLead;
+  } else [tx, ty] = lead(p, t.x, t.y, d.vx, d.vy, spec.speed, AIM.lead);
+  const dx = tx - p.d.x;
+  const dy = ty - p.d.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist === 0) return null;
+  return { target: t, dx: dx / dist, dy: dy / dist, x: tx, y: ty };
 }
 
 /**
@@ -216,7 +307,7 @@ export function autoAim(s: GameState, p: PlayerState): { target: AimTarget; dx: 
 export function grappleAim(s: GameState, p: PlayerState): { dx: number; dy: number; inRange: boolean } | null {
   const c = cfg(s).batman.grapple;
   const b = s.ball;
-  const [tx, ty] = lead(p, b.x, b.y, b.vx, b.vy, c.speed);
+  const [tx, ty] = lead(p, b.x, b.y, b.vx, b.vy, c.speed, AIM.lead);
   const dx = tx - p.d.x;
   const dy = ty - p.d.y;
   const dist = Math.hypot(dx, dy);
@@ -286,12 +377,44 @@ export function powerActive(s: GameState, p: PlayerState, slot: 'q' | 'e'): bool
     case 'flash': return q ? p.sprint > 0 : p.trailBoost > 0;
     case 'thor': return q ? proj('hammer') : zone('bolt');
     case 'strange': return q ? false : zone('portal');
+    case 'homer': return q ? proj('donut') : zone('beer');
+    // las balas las limita el intervalo mínimo, no un bloqueo
+    case 'cj': return q ? false : p.jet > 0;
+    case 'baldi': return q ? proj('ruler') : zone('quiz') || s.players.some((o) => o.quiz?.by === p.id);
+    case 'ibai': return q ? zone('punch') : p.giant > 0;
+    case 'verity': return q ? p.anger > 0 : zone('tnt');
+    case 'thanos': return q ? gemActive(s, p, p.gem) : false;
+  }
+}
+
+const GEMS = ['time', 'mind', 'reality', 'space', 'power'] as const;
+
+/** ¿Sigue activo el efecto de esa gema de Thanos? (sin cooldowns no se puede reactivar hasta que termine) */
+export function gemActive(s: GameState, p: PlayerState, gem: number): boolean {
+  switch (GEMS[gem]) {
+    case 'mind': return !!controlling(s, p);
+    case 'reality': return s.illusion?.by === p.id;
+    case 'space': return s.zones.some((z) => z.owner === p.id && z.kind === 'space');
+    case 'power': return p.powerKick > 0;
+    default: return false;
+  }
+}
+
+/** Poderes que desplazan al propio jugador: la rosquilla los impide. */
+function movesSelf(p: PlayerState, slot: 'q' | 'e'): boolean {
+  switch (p.hero) {
+    case 'spider': case 'batman': case 'hawkeye': case 'widow': case 'strange': return slot === 'e';
+    case 'panther': return slot === 'q';
+    case 'thanos': return slot === 'q' && GEMS[p.gem] === 'space';
+    default: return false;
   }
 }
 
 /** Intenta activar Q o E. Devuelve true si se activó (y entonces corre la recarga). */
 export function activate(s: GameState, p: PlayerState, slot: 'q' | 'e'): boolean {
-  if (p.stun > 0) return false;
+  if (incapacitated(p)) return false;
+  if (p.trap > 0 && movesSelf(p, slot)) return false;
+  if (p.hero === 'thanos') return slot === 'q' ? activateGem(s, p) : nextGem(s, p);
   if (slot === 'q' ? p.cdQ > 0 : p.cdE > 0) return false;
   if (s.noCd && powerActive(s, p, slot)) return false;
   // topes técnicos: sin lugar para más objetos, no se activa (ni gasta recarga)
@@ -299,12 +422,10 @@ export function activate(s: GameState, p: PlayerState, slot: 'q' | 'e'): boolean
   const P = cfg(s);
   let ax = p.ax;
   let ay = p.ay;
-  if (slot === 'q') {
-    const aim = autoAim(s, p);
-    if (aim) {
-      ax = aim.dx;
-      ay = aim.dy;
-    }
+  const aim = autoAim(s, p, slot);
+  if (aim) {
+    ax = aim.dx;
+    ay = aim.dy;
   }
   let cd = 0;
   switch (p.hero) {
@@ -431,8 +552,10 @@ export function activate(s: GameState, p: PlayerState, slot: 'q' | 'e'): boolean
           s.events.push({ type: 'fizzle', id: p.id, slot });
           return false;
         }
-        // el punto de impacto queda fijo: no persigue a la pelota
-        addZone(s, p, 'missile', s.ball.x, s.ball.y, c.radius, c.delay, c.delay + MISSILE_AFTER);
+        // el punto de impacto queda fijo (con una anticipación moderada que se puede esquivar): no persigue a la pelota
+        const mx = s.ball.x + s.ball.vx * c.delay * AIM.areaLead;
+        const my = s.ball.y + s.ball.vy * c.delay * AIM.areaLead;
+        addZone(s, p, 'missile', mx, my, c.radius, c.delay, c.delay + MISSILE_AFTER);
         cd = c.cooldown;
       }
       break;
@@ -484,6 +607,93 @@ export function activate(s: GameState, p: PlayerState, slot: 'q' | 'e'): boolean
         cd = c.cooldown;
       }
       break;
+    case 'homer':
+      if (slot === 'q') {
+        shoot(s, p, 'donut', ax, ay, P.homer.donut);
+        cd = P.homer.donut.cooldown;
+      } else {
+        const c = P.homer.beer;
+        // cae adelante, dentro del estadio
+        const [bx, by] = clampToStadium(p.d.x + p.ax * c.ahead, p.d.y + p.ay * c.ahead, 0);
+        const z = addZone(s, p, 'beer', bx, by, c.radius, c.throwTicks, c.throwTicks + c.ticks);
+        z.pts.push({ x: p.d.x, y: p.d.y, t: s.tick });
+        cd = c.cooldown;
+      }
+      break;
+    case 'cj':
+      if (slot === 'q') {
+        const c = P.cj.gun;
+        // una bala por pulsación, con intervalo mínimo; la recarga empieza tras la última
+        if (p.ammo <= 0 || p.shotGap > 0) return false;
+        shoot(s, p, 'bullet', ax, ay, c);
+        p.ammo--;
+        p.shotGap = c.gap;
+        s.events.push({ type: 'shot', id: p.id, x: p.d.x + ax * p.d.r, y: p.d.y + ay * p.d.r, dx: ax, dy: ay });
+        cd = p.ammo === 0 ? c.reload : 0;
+      } else {
+        p.jet = P.cj.jetpack.ticks;
+        cd = P.cj.jetpack.cooldown;
+      }
+      break;
+    case 'baldi':
+      if (slot === 'q') {
+        shoot(s, p, 'ruler', ax, ay, P.baldi.ruler);
+        cd = P.baldi.ruler.cooldown;
+      } else {
+        const c = P.baldi.quiz;
+        const t = quizTarget(s, p);
+        // sin objetivo válido no se gasta la recarga
+        if (!t) {
+          s.events.push({ type: 'fizzle', id: p.id, slot });
+          return false;
+        }
+        const z = addZone(s, p, 'quiz', t.d.x, t.d.y, t.d.r, c.windup, c.windup);
+        z.target = t.id;
+        cd = c.cooldown;
+      }
+      break;
+    case 'ibai':
+      if (slot === 'q') {
+        const c = P.ibai.glove;
+        const t = gloveTarget(s, p);
+        if (!t) {
+          s.events.push({ type: 'fizzle', id: p.id, slot });
+          return false;
+        }
+        const z = addZone(s, p, 'punch', p.d.x, p.d.y, p.d.r, c.windup, c.windup + PUNCH_AFTER);
+        z.target = t.id;
+        const d = Math.hypot(t.d.x - p.d.x, t.d.y - p.d.y) || 1;
+        z.dx = (t.d.x - p.d.x) / d;
+        z.dy = (t.d.y - p.d.y) / d;
+        cd = c.cooldown;
+      } else {
+        p.giant = P.ibai.giant.ticks;
+        cd = P.ibai.giant.cooldown;
+      }
+      break;
+    case 'verity':
+      if (slot === 'q') {
+        p.anger = P.verity.anger.ticks;
+        cd = P.verity.anger.cooldown;
+      } else {
+        const c = P.verity.tnt;
+        // punto de caída fijo al lanzar: el objetivo autoapuntado (anticipado) o el alcance máximo
+        let tx = aim ? aim.x : p.d.x + p.ax * c.range;
+        let ty = aim ? aim.y : p.d.y + p.ay * c.range;
+        const dist = Math.hypot(tx - p.d.x, ty - p.d.y);
+        if (dist > c.range + p.d.r) {
+          tx = p.d.x + ((tx - p.d.x) / dist) * (c.range + p.d.r);
+          ty = p.d.y + ((ty - p.d.y) / dist) * (c.range + p.d.r);
+        }
+        [tx, ty] = clampToStadium(tx, ty, 8);
+        const z = addZone(s, p, 'tnt', tx, ty, c.radius, c.flightTicks + c.fuse, c.flightTicks + c.fuse + BOOM_AFTER);
+        z.len = c.flightTicks;
+        z.dx = ax;
+        z.dy = ay;
+        z.pts.push({ x: p.d.x, y: p.d.y, t: s.tick });
+        cd = c.cooldown;
+      }
+      break;
   }
   if (s.noCd) cd = 0;
   if (slot === 'q') p.cdQ = cd;
@@ -494,6 +704,223 @@ export function activate(s: GameState, p: PlayerState, slot: 'q' | 'e'): boolean
 
 /** Ticks que el misil queda dibujado después de caer (muestra la dirección sorteada). */
 const MISSILE_AFTER = 30;
+/** Ticks que se ven el golpe del guante y la explosión de la TNT. */
+const PUNCH_AFTER = 10;
+const BOOM_AFTER = 24;
+
+/** Punto dentro del estadio (con margen). */
+function clampToStadium(x: number, y: number, margin: number): [number, number] {
+  const W = STADIUM.width - margin;
+  const H = STADIUM.height - margin;
+  return [Math.max(-W, Math.min(W, x)), Math.max(-H, Math.min(H, y))];
+}
+
+/** Quiz de Baldi: rival más alineado delante (cono propio), al alcance, a la vista, sin quiz ni inmunidad. */
+export function quizTarget(s: GameState, p: PlayerState): PlayerState | null {
+  const c = cfg(s).baldi.quiz;
+  const t = pickTarget(s, p, { range: c.range, ball: false, rivals: true, coneHalf: c.cone, filter: (o) => o.quiz === null && o.quizImmune === 0 && !s.zones.some((z) => z.kind === 'quiz' && z.target === o.id) });
+  return t ? findPlayer(s, t.id!) ?? null : null;
+}
+
+/** Guante de Ibai: rival más cercano (borde a borde) dentro del cono frontal y del alcance, a la vista. */
+export function gloveTarget(s: GameState, p: PlayerState): PlayerState | null {
+  const c = cfg(s).ibai.glove;
+  const cos = Math.cos((c.cone * Math.PI) / 180);
+  let best: PlayerState | null = null;
+  let bestGap = Infinity;
+  for (const o of s.players) {
+    if (o.team === p.team) continue;
+    const dx = o.d.x - p.d.x;
+    const dy = o.d.y - p.d.y;
+    const dist = Math.hypot(dx, dy);
+    const gap = dist - p.d.r - o.d.r;
+    if (dist === 0 || gap > c.range) continue;
+    if ((dx * p.ax + dy * p.ay) / dist < cos - 1e-9) continue;
+    if (lineBlocked(p.d.x, p.d.y, o.d.x, o.d.y)) continue;
+    if (gap < bestGap - 1e-6 || (Math.abs(gap - bestGap) <= 1e-6 && best && o.id < best.id)) {
+      best = o;
+      bestGap = gap;
+    }
+  }
+  return best;
+}
+
+/** Rival para las gemas del Tiempo y la Mente: el del cono compartido o, si no hay, el más cercano al alcance. */
+function gemTarget(s: GameState, p: PlayerState, range: number, filter?: (o: PlayerState) => boolean): PlayerState | null {
+  const t = pickTarget(s, p, { range, ball: false, rivals: true, filter }) ?? pickTarget(s, p, { range, ball: false, rivals: true, coneHalf: 180, filter });
+  return t ? findPlayer(s, t.id!) ?? null : null;
+}
+
+/** E de Thanos: pasa a la siguiente gema (sin recarga). */
+function nextGem(s: GameState, p: PlayerState): boolean {
+  p.gem = (p.gem + 1) % GEMS.length;
+  s.events.push({ type: 'gem', id: p.id, gem: p.gem });
+  return true;
+}
+
+/**
+ * Q de Thanos: activa la gema elegida. Recargas independientes por gema y un
+ * intervalo compartido entre activaciones (también sin cooldowns). Sin
+ * objetivo o destino válido se rechaza sin gastar la recarga.
+ */
+function activateGem(s: GameState, p: PlayerState): boolean {
+  const P = cfg(s).thanos;
+  const g = p.gem;
+  if (p.gemGap > 0 || p.gemCd[g] > 0) return false;
+  if (gemActive(s, p, g)) return false;
+  if (s.zones.length >= POWER_LIMITS.maxZones) return false;
+  const fizzle = (): boolean => {
+    s.events.push({ type: 'fizzle', id: p.id, slot: 'q' });
+    return false;
+  };
+  let cd = 0;
+  switch (GEMS[g]) {
+    case 'time': {
+      const c = P.time;
+      const o = gemTarget(s, p, c.range, (q) => (s.plHist[q.id]?.length ?? 0) >= 8);
+      if (!o || !timeRewind(s, p, o, c.ticks)) return fizzle();
+      cd = c.cooldown;
+      break;
+    }
+    case 'mind': {
+      const c = P.mind;
+      const o = gemTarget(s, p, c.range, (q) => q.stunImmune === 0 && q.quiz === null);
+      if (!o || !applyIncap(s, o, 'mind', c.ticks, p.id)) return fizzle();
+      const z = addZone(s, p, 'mind', o.d.x, o.d.y, o.d.r, 0, o.mind);
+      z.target = o.id;
+      cd = c.cooldown;
+      break;
+    }
+    case 'reality': {
+      const c = P.reality;
+      if (s.illusion || s.illusionGap > 0) return fizzle();
+      const [x, y] = illusionSpot(s, p);
+      s.illusion = { by: p.id, team: p.team === 'red' ? 'blue' : 'red', x, y, ticks: c.ticks };
+      s.events.push({ type: 'illusion', by: p.id, team: s.illusion.team, result: 'start' });
+      cd = c.cooldown;
+      break;
+    }
+    case 'space': {
+      const c = P.space;
+      if (!ballInReach(s, p, c.range)) return fizzle();
+      const z = addZone(s, p, 'space', s.ball.x, s.ball.y, p.d.r, c.windup, c.windup);
+      z.pts.push({ x: p.d.x, y: p.d.y, t: s.tick });
+      cd = c.cooldown;
+      break;
+    }
+    case 'power': {
+      p.powerKick = P.power.ticks;
+      cd = P.power.cooldown;
+      break;
+    }
+  }
+  p.gemCd[g] = s.noCd ? 0 : cd;
+  p.gemGap = P.gap;
+  s.events.push({ type: 'power', id: p.id, slot: 'q', hero: p.hero, gem: g });
+  return true;
+}
+
+/** Pelota falsa de la ilusión: pegada a Thanos, del lado al que mira. */
+function illusionSpot(s: GameState, p: PlayerState): [number, number] {
+  const d = p.d.r + s.ball.r + 3;
+  return clampToStadium(p.d.x + p.ax * d, p.d.y + p.ay * d, s.ball.r);
+}
+
+/**
+ * Gema del Tiempo: el rival vuelve a su posición y velocidad de hace `ticks`
+ * (o lo más viejo de esta jugada), al lugar legal más cercano. No toca goles,
+ * poderes ni recargas.
+ */
+function timeRewind(s: GameState, p: PlayerState, o: PlayerState, ticks: number): boolean {
+  const h = s.plHist[o.id];
+  if (!h || h.length < 8) return false;
+  const count = h.length / 4;
+  const i = Math.max(0, count - ticks) * 4;
+  const spot = freeSpot(s, h[i], h[i + 1], o.d.r, 'player', o);
+  if (!spot) return false;
+  const z = addZone(s, p, 'timeGhost', spot[0], spot[1], o.d.r, 0, TIME_GHOST);
+  z.target = o.id;
+  for (let k = i; k < h.length; k += 16) z.pts.push({ x: h[k], y: h[k + 1], t: 0 });
+  z.pts.push({ x: o.d.x, y: o.d.y, t: 0 });
+  o.d.x = spot[0];
+  o.d.y = spot[1];
+  o.d.vx = h[i + 2];
+  o.d.vy = h[i + 3];
+  clampSpeed(o.d, LIMITS.playerMaxSpeed);
+  o.rush = 0;
+  o.dash = 0;
+  o.warp++;
+  s.tethers = s.tethers.filter((t) => !(t.owner === o.id && t.kind === 'grapple'));
+  s.plHist[o.id] = h.slice(0, i);
+  s.events.push({ type: 'rewind', id: o.id, x0: z.pts[z.pts.length - 1].x, y0: z.pts[z.pts.length - 1].y, x1: o.d.x, y1: o.d.y });
+  return true;
+}
+
+/** Ticks que se ve el recorrido fantasma de la Gema del Tiempo. */
+const TIME_GHOST = 40;
+
+/**
+ * Abre el quiz de Baldi: una cuenta simple (sumas y restas de 1 a 20 sin
+ * resultados negativos; en Súper también multiplicaciones de 2 a 5) con tres
+ * respuestas. Todo sale del generador de la autoridad.
+ */
+function openQuiz(s: GameState, o: PlayerState, by: string): void {
+  const c = cfg(s).baldi.quiz;
+  const int = (a: number, b: number) => a + Math.floor(nextRandom(s) * (b - a + 1));
+  const roll = nextRandom(s);
+  const op = c.multiply && roll < 1 / 3 ? '×' : roll < (c.multiply ? 2 / 3 : 0.5) ? '+' : '−';
+  let a: number;
+  let b: number;
+  let ans: number;
+  if (op === '×') {
+    a = int(2, 5);
+    b = int(2, 5);
+    ans = a * b;
+  } else {
+    a = int(1, 20);
+    b = int(1, 20);
+    if (op === '−' && a < b) [a, b] = [b, a];
+    ans = op === '+' ? a + b : a - b;
+  }
+  const offs = [-3, -2, -1, 1, 2, 3].filter((d) => ans + d >= 0);
+  const i1 = int(0, offs.length - 1);
+  const d1 = offs.splice(i1, 1)[0];
+  const d2 = offs[int(0, offs.length - 1)];
+  const answer = int(0, 2);
+  const wrong = [ans + d1, ans + d2];
+  const opts = [0, 1, 2].map((k) => (k === answer ? ans : wrong.shift()!)) as [number, number, number];
+  o.quiz = { by, text: `${a} ${op} ${b}`, opts, answer, ticks: c.ticks, max: c.ticks, wrong: 0 };
+  o.kickArmed = false;
+  o.rush = 0;
+  o.dash = 0;
+  s.zones = s.zones.filter((z) => !(z.owner === o.id && (z.kind === 'portal' || z.kind === 'space')));
+  s.tethers = s.tethers.filter((t) => !(t.owner === o.id && t.kind === 'grapple'));
+  s.events.push({ type: 'quiz', id: o.id, by, result: 'open' });
+}
+
+function closeQuiz(s: GameState, o: PlayerState, result: 'ok' | 'timeout'): void {
+  const by = o.quiz?.by ?? '';
+  o.quiz = null;
+  o.quizImmune = BALDI_QUIZ.immuneTicks;
+  o.kickArmed = false;
+  s.events.push({ type: 'quiz', id: o.id, by, result });
+}
+
+/**
+ * Respuesta al quiz (número 1–3 de la entrada, al apretarlo). La correcta lo
+ * cierra; una incorrecta no lo alarga. Lo valida la autoridad.
+ */
+export function quizInput(s: GameState, p: PlayerState): void {
+  const q = p.quiz;
+  if (!q) return;
+  const n = inNum(p.input);
+  if (n < 1 || n > 3 || n === inNum(p.prevInput)) return;
+  if (n - 1 === q.answer) closeQuiz(s, p, 'ok');
+  else {
+    q.wrong++;
+    s.events.push({ type: 'quiz', id: p.id, by: q.by, result: 'wrong' });
+  }
+}
 
 function addZone(s: GameState, p: PlayerState, kind: Zone['kind'], x: number, y: number, r: number, delay: number, ticks: number): Zone {
   const z: Zone = { id: s.nextId++, kind, owner: p.id, team: p.team, x, y, r, delay, ticks, dx: 0, dy: 0, len: 0, ang: null, pts: [] };
@@ -512,6 +939,7 @@ function protectBall(s: GameState, p: PlayerState, ticks: number): void {
   s.tethers = s.tethers.filter((t) => !(t.kind === 'web' && t.target === null));
   s.ballElec = 0;
   s.ballElecHit = [];
+  s.ballDonut = 0;
   s.events.push({ type: 'protect', id: p.id });
 }
 
@@ -650,7 +1078,7 @@ function applySlow(o: PlayerState, pct: number, ticks: number): void {
 
 function slam(s: GameState, p: PlayerState): void {
   const c = cfg(s).hulk.slam;
-  if (!ballGuarded(s) && radialPush(p.d.x, p.d.y, s.ball, c.range, c.ballImpulse, LIMITS.ballMaxSpeed - 1, p.d.r)) s.lastTouch = p.id;
+  if (!ballGuarded(s) && radialPush(p.d.x, p.d.y, s.ball, c.range, c.ballImpulse * ballImpulseFactor(s), LIMITS.ballMaxSpeed - 1, p.d.r)) s.lastTouch = p.id;
   for (const o of s.players) {
     if (o.team === p.team) continue;
     if (radialPush(p.d.x, p.d.y, o.d, c.range, c.playerImpulse * pushFactor(s, o), LIMITS.playerMaxSpeed, p.d.r)) applySlow(o, c.stunPct, c.stunTicks);
@@ -664,7 +1092,7 @@ function slam(s: GameState, p: PlayerState): void {
  * un impulso por objetivo y sin atravesar paredes ni postes. Empuja a ambos
  * equipos, incluido quien la provocó.
  */
-function blast(s: GameState, x: number, y: number, radius: number, ballImp: number, playerImp: number, owner: string, fx: number, fy: number): void {
+function blast(s: GameState, x: number, y: number, radius: number, ballImp: number, playerImp: number, owner: string, fx: number, fy: number, kind: 'arrow' | 'tnt' = 'arrow'): void {
   const dir = (dx: number, dy: number): [number, number] => {
     const d = Math.hypot(dx, dy);
     return d > 1e-6 ? [dx / d, dy / d] : [fx, fy];
@@ -681,7 +1109,8 @@ function blast(s: GameState, x: number, y: number, radius: number, ballImp: numb
     const [ux, uy] = dir(o.d.x - x, o.d.y - y);
     pushPlayer(s, o, ux, uy, playerImp * (1 - Math.max(0, g) / radius));
   }
-  s.events.push({ type: 'boom', x, y, r: radius, kind: 'arrow' });
+  if (gb <= radius && ballGuarded(s)) s.events.push({ type: 'blocked', x: b.x, y: b.y });
+  s.events.push({ type: 'boom', x, y, r: radius, kind });
 }
 
 /** Distancia libre de un rayo desde (x, y) en (dx, dy) hasta la primera pared, red o poste (máximo `max`). */
@@ -772,7 +1201,7 @@ function updateZones(s: GameState): void {
         // el pulso nace del borde de Black Panther
         const cr = owner.d.r;
         const reach = z.r - cr;
-        if (!ballGuarded(s) && radialPush(z.x, z.y, b, reach, c.ballImpulse, LIMITS.ballMaxSpeed - 1, cr)) s.lastTouch = z.owner;
+        if (!ballGuarded(s) && radialPush(z.x, z.y, b, reach, c.ballImpulse * ballImpulseFactor(s), LIMITS.ballMaxSpeed - 1, cr)) s.lastTouch = z.owner;
         for (const o of s.players) {
           if (o.team === z.team) continue;
           radialPush(z.x, z.y, o.d, reach, c.playerImpulse * pushFactor(s, o), LIMITS.playerMaxSpeed, cr);
@@ -853,12 +1282,99 @@ function updateZones(s: GameState): void {
         s.events.push({ type: 'blink', id: owner.id, x0, y0, x1: owner.d.x, y1: owner.d.y });
         return false;
       }
+      case 'beer':
+        if (z.delay > 0) z.delay--;
+        return --z.ticks > 0;
+      case 'tnt':
+        if (z.delay > 0 && --z.delay === 0) {
+          const c = P.verity.tnt;
+          blast(s, z.x, z.y, z.r, c.ballImpulse, c.playerImpulse, z.owner, z.dx, z.dy, 'tnt');
+        }
+        return --z.ticks > 0;
+      case 'quiz': {
+        const t = z.target ? findPlayer(s, z.target) : undefined;
+        if (!t) return false;
+        z.x = t.d.x;
+        z.y = t.d.y;
+        z.r = t.d.r;
+        if (--z.delay > 0) return true;
+        // sigue siendo válido al resolverse; si no, no gasta la recarga
+        if (t.team !== z.team && t.quiz === null && t.quizImmune === 0) openQuiz(s, t, z.owner);
+        else {
+          owner.cdE = 0;
+          s.events.push({ type: 'fizzle', id: owner.id, slot: 'e' });
+        }
+        return false;
+      }
+      case 'punch': {
+        z.x = owner.d.x;
+        z.y = owner.d.y;
+        if (z.delay > 0 && --z.delay === 0) {
+          const c = P.ibai.glove;
+          const t = z.target ? findPlayer(s, z.target) : undefined;
+          // sólo pega si el rival sigue al alcance y a la vista (no golpea a distancia)
+          if (t) {
+            const dx = t.d.x - owner.d.x;
+            const dy = t.d.y - owner.d.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist > 0 && dist - owner.d.r - t.d.r <= c.range + 2 && !lineBlocked(owner.d.x, owner.d.y, t.d.x, t.d.y)) {
+              z.dx = dx / dist;
+              z.dy = dy / dist;
+              pushPlayer(s, t, z.dx, z.dy, c.playerImpulse);
+              s.events.push({ type: 'hit', x: t.d.x, y: t.d.y, target: 'player' });
+            }
+          }
+        }
+        return --z.ticks > 0;
+      }
+      case 'space': {
+        if (--z.delay > 0) return true;
+        // junto a la pelota (sin moverla), del lado que mira hacia donde estaba Thanos
+        const o = z.pts[0];
+        let ux = o.x - b.x;
+        let uy = o.y - b.y;
+        const d = Math.hypot(ux, uy);
+        if (d > 1e-6) {
+          ux /= d;
+          uy /= d;
+        } else {
+          ux = -owner.ax;
+          uy = -owner.ay;
+        }
+        const gap = b.r + owner.d.r + 2;
+        const spot = freeSpot(s, b.x + ux * gap, b.y + uy * gap, owner.d.r, 'player', owner);
+        if (!spot) {
+          owner.gemCd[GEMS.indexOf('space')] = 0;
+          s.events.push({ type: 'fizzle', id: owner.id, slot: 'q' });
+          return false;
+        }
+        const x0 = owner.d.x;
+        const y0 = owner.d.y;
+        owner.d.x = spot[0];
+        owner.d.y = spot[1];
+        owner.d.vx = 0;
+        owner.d.vy = 0;
+        owner.rush = 0;
+        owner.warp++;
+        s.events.push({ type: 'blink', id: owner.id, x0, y0, x1: owner.d.x, y1: owner.d.y });
+        return false;
+      }
+      case 'mind': {
+        const t = z.target ? findPlayer(s, z.target) : undefined;
+        if (!t || t.mind <= 0 || t.mindBy !== owner.id) return false;
+        z.x = t.d.x;
+        z.y = t.d.y;
+        return true;
+      }
+      case 'timeGhost':
+        return --z.ticks > 0;
     }
   });
 }
 
 /** Temporizadores, proyectiles, hilos, zonas y pelota. Se llama una vez por tick tras la física. */
 export function updatePowers(s: GameState): void {
+  const P = cfg(s);
   for (const p of s.players) {
     if (p.cdQ > 0) p.cdQ--;
     if (p.cdE > 0) p.cdE--;
@@ -873,15 +1389,110 @@ export function updatePowers(s: GameState): void {
     if (p.slowTicks > 0) p.slowTicks--;
     if (p.slowTicks === 0) p.slowPct = 0;
     if (p.capSlowTicks > 0 && --p.capSlowTicks === 0) p.capSlow = 0;
-    if (p.stun > 0) {
-      if (--p.stun === 0) p.stunImmune = STUN.immuneTicks;
-    } else if (p.stunImmune > 0) p.stunImmune--;
+    updateIncap(s, p);
+    if (p.quiz && --p.quiz.ticks <= 0) closeQuiz(s, p, 'timeout');
+    else if (!p.quiz && p.quizImmune > 0) p.quizImmune--;
+    if (p.jet > 0) p.jet--;
+    if (p.anger > 0) p.anger--;
+    if (p.giant > 0) p.giant--;
+    if (p.shotGap > 0) p.shotGap--;
+    // CJ: la recarga empieza tras la última bala; al terminar se llena el cargador
+    if (p.ammo <= 0 && p.cdQ === 0) p.ammo = P.cj.gun.shots;
+    if (p.powerKick > 0) p.powerKick--;
+    if (p.gemGap > 0) p.gemGap--;
+    for (let g = 0; g < p.gemCd.length; g++) if (p.gemCd[g] > 0) p.gemCd[g]--;
+    updateSlip(s, p);
+    updateGiant(s, p);
   }
   if (s.ballShield > 0 && --s.ballShield === 0) s.ballShieldBy = null;
+  if (s.ballDonut > 0) s.ballDonut--;
+  updateIllusion(s);
   updateProjectiles(s);
   updateTethers(s);
   updateZones(s);
   updateBall(s);
+  recordPlayers(s);
+}
+
+/**
+ * Incapacidades: corren juntas como una sola (nunca más de STUN.maxTicks
+ * seguidos); el control mental termina si quien controla queda incapacitado o
+ * se va. Al terminar, inmunidad.
+ */
+function updateIncap(s: GameState, p: PlayerState): void {
+  if (p.mind > 0) {
+    const by = p.mindBy ? findPlayer(s, p.mindBy) : undefined;
+    if (!by || by.stun > 0 || by.mind > 0 || by.quiz) p.mind = 0;
+  }
+  if (p.stun > 0 || p.trap > 0 || p.mind > 0) {
+    p.incapRun++;
+    if (p.stun > 0) p.stun--;
+    if (p.trap > 0) p.trap--;
+    if (p.mind > 0) p.mind--;
+    if (p.incapRun >= STUN.maxTicks) p.stun = p.trap = p.mind = 0;
+  }
+  if (p.stun === 0 && p.trap === 0 && p.mind === 0) {
+    p.mindBy = null;
+    if (p.incapRun > 0) {
+      p.incapRun = 0;
+      p.stunImmune = STUN.immuneTicks;
+    } else if (p.stunImmune > 0) p.stunImmune--;
+  }
+}
+
+/** Charco de cerveza: dentro, resbala del todo; al salir recupera el agarre en `recoverTicks`. */
+function updateSlip(s: GameState, p: PlayerState): void {
+  const c = cfg(s).homer.beer;
+  const inside = s.zones.some((z) => z.kind === 'beer' && z.delay === 0 && Math.hypot(p.d.x - z.x, p.d.y - z.y) < z.r);
+  p.slip = inside ? 1 : Math.max(0, p.slip - 1 / Math.max(1, c.recoverTicks));
+}
+
+/**
+ * Cuerpo gigante: el radio físico crece y se achica de a poco. Sólo crece en
+ * el espacio libre (jugadores, pelota, postes y límites), así nunca aparece
+ * solapado ni genera empujes explosivos; al terminar vuelve al tamaño normal.
+ */
+function updateGiant(s: GameState, p: PlayerState): void {
+  const c = cfg(s).ibai.giant;
+  const base = PLAYER.radius;
+  const target = p.giant > 0 ? base * c.radiusMult : base;
+  const rate = (base * (c.radiusMult - 1)) / Math.max(1, c.growTicks);
+  if (p.d.r > target) p.d.r = Math.max(target, p.d.r - rate);
+  else if (p.d.r < target) {
+    let room = Math.min(STADIUM.width - Math.abs(p.d.x), STADIUM.height - Math.abs(p.d.y)) - p.d.r;
+    for (const o of s.players) if (o !== p) room = Math.min(room, Math.hypot(o.d.x - p.d.x, o.d.y - p.d.y) - o.d.r - p.d.r);
+    room = Math.min(room, Math.hypot(s.ball.x - p.d.x, s.ball.y - p.d.y) - s.ball.r - p.d.r);
+    for (const q of stadium.posts) room = Math.min(room, Math.hypot(q.x - p.d.x, q.y - p.d.y) - q.r - p.d.r);
+    p.d.r = Math.min(target, p.d.r + Math.min(rate, Math.max(0, room - 0.5)));
+  }
+}
+
+/** Ilusión de la Gema de la Realidad: la pelota falsa acompaña a Thanos; al terminar, intervalo de visibilidad real. */
+function updateIllusion(s: GameState): void {
+  if (s.illusionGap > 0) s.illusionGap--;
+  const il = s.illusion;
+  if (!il) return;
+  const p = findPlayer(s, il.by);
+  if (p) [il.x, il.y] = illusionSpot(s, p);
+  if (!p || --il.ticks <= 0) endIllusion(s);
+}
+
+function endIllusion(s: GameState): void {
+  const il = s.illusion;
+  if (!il) return;
+  s.illusion = null;
+  s.illusionGap = cfg(s).thanos.reality.between;
+  s.events.push({ type: 'illusion', by: il.by, team: il.team, result: 'end' });
+}
+
+/** Historial de los jugadores de esta jugada (Gema del Tiempo). */
+function recordPlayers(s: GameState): void {
+  const max = cfg(s).thanos.time.ticks * 4;
+  for (const p of s.players) {
+    const h = (s.plHist[p.id] ??= []);
+    h.push(p.d.x, p.d.y, p.d.vx, p.d.vy);
+    if (h.length > max) h.splice(0, h.length - max);
+  }
 }
 
 /** Electricidad por contacto físico e historial para rebobinar. */
@@ -1046,13 +1657,26 @@ function stepProjectile(s: GameState, pr: Projectile): boolean {
         s.tethers = s.tethers.filter((t) => !(t.owner === pr.owner && t.kind === 'grapple'));
         s.tethers.push({ owner: pr.owner, kind: 'grapple', target: null, ticks: P.batman.grapple.pullTicks });
         s.events.push({ type: 'tether', id: pr.owner });
+      } else if (pr.kind === 'donut') {
+        // rosquilla: frena una vez y reduce los impulsos extra durante un rato
+        const c = P.homer.donut;
+        b.vx *= 1 - c.ballSlow;
+        b.vy *= 1 - c.ballSlow;
+        s.ballDonut = c.ballTicks;
+        s.lastTouch = pr.owner;
+      } else if (pr.kind === 'ruler') {
+        // regla: la deja quieta una vez (no la congela)
+        b.vx = 0;
+        b.vy = 0;
+        s.lastTouch = pr.owner;
       } else {
         // impulso en la dirección del disparo (un solo impacto)
         const impulse = {
           batarang: P.batman.batarang.ballImpulse,
           repulsor: P.ironman.repulsor.ballImpulse,
           hammer: P.thor.hammer.ballImpulse,
-        }[pr.kind as 'batarang' | 'repulsor' | 'hammer'];
+          bullet: P.cj.gun.ballImpulse,
+        }[pr.kind as 'batarang' | 'repulsor' | 'hammer' | 'bullet'];
         pushBall(s, sx, sy, impulse, pr.owner);
         if (pr.kind === 'hammer') {
           // Mjolnir electrifica la pelota (no se suma: reinicia la aplicación)
@@ -1064,8 +1688,8 @@ function stepProjectile(s: GameState, pr: Projectile): boolean {
       s.events.push({ type: 'hit', x: pr.x, y: pr.y, target: 'ball' });
       return false;
     }
-    // el gancho sólo busca la pelota: atraviesa a los jugadores
-    if (pr.kind === 'hook') continue;
+    // el gancho y la regla sólo buscan la pelota: atraviesan a los jugadores
+    if (pr.kind === 'hook' || pr.kind === 'ruler') continue;
     for (const o of s.players) {
       if (o.id === pr.owner) continue;
       if (Math.hypot(o.d.x - pr.x, o.d.y - pr.y) >= o.d.r + pr.r) continue;
@@ -1099,6 +1723,14 @@ function stepProjectile(s: GameState, pr: Projectile): boolean {
         case 'hammer':
           if (!rival) continue;
           pushPlayer(s, o, ux, uy, P.thor.hammer.playerImpulse);
+          break;
+        case 'bullet':
+          if (!rival) continue;
+          pushPlayer(s, o, ux, uy, P.cj.gun.playerImpulse);
+          break;
+        case 'donut':
+          if (!rival) continue;
+          applyIncap(s, o, 'trap', P.homer.donut.trapTicks);
           break;
         case 'web':
           // la telaraña se corta con cualquiera; en Súper se pega a los rivales
@@ -1159,7 +1791,7 @@ function updateTethers(s: GameState): void {
         if (dist > c.range * c.breakFactor || ballGuarded(s)) return false;
         // ya llegó: deja de tirar (no se pega al jugador)
         if (gap < 2) return false;
-        pullToward(b, p.d.x, p.d.y, c.pullAccel, c.pullMaxSpeed);
+        pullToward(b, p.d.x, p.d.y, c.pullAccel * ballImpulseFactor(s), c.pullMaxSpeed);
         return true;
       }
       case 'rival': {
@@ -1174,8 +1806,9 @@ function updateTethers(s: GameState): void {
         if (gap < 3) {
           // llegó: en Súper empuja la pelota en la dirección del viaje (salvo protegida)
           if (c.arriveImpulse > 0 && dist > 0 && !ballGuarded(s)) {
-            b.vx += ((b.x - p.d.x) / dist) * c.arriveImpulse;
-            b.vy += ((b.y - p.d.y) / dist) * c.arriveImpulse;
+            const k = c.arriveImpulse * ballImpulseFactor(s);
+            b.vx += ((b.x - p.d.x) / dist) * k;
+            b.vy += ((b.y - p.d.y) / dist) * k;
             clampSpeed(b, LIMITS.ballMaxSpeed - 1);
             s.lastTouch = p.id;
             s.events.push({ type: 'hit', x: b.x, y: b.y, target: 'ball' });
@@ -1212,6 +1845,10 @@ export function clearEffects(s: GameState): void {
   s.ballElec = 0;
   s.ballElecHit = [];
   s.ballHist = [];
+  s.ballDonut = 0;
+  s.plHist = {};
+  s.illusion = null;
+  s.illusionGap = 0;
   for (const p of s.players) {
     p.dash = 0;
     p.fury = 0;
@@ -1228,5 +1865,19 @@ export function clearEffects(s: GameState): void {
     p.slowNow = 0;
     p.stun = 0;
     p.stunImmune = 0;
+    p.trap = 0;
+    p.mind = 0;
+    p.mindBy = null;
+    p.incapRun = 0;
+    p.slip = 0;
+    p.jet = 0;
+    p.anger = 0;
+    p.giant = 0;
+    p.d.r = PLAYER.radius;
+    p.quiz = null;
+    p.quizImmune = 0;
+    p.shotGap = 0;
+    p.powerKick = 0;
+    p.gemGap = 0;
   }
 }

@@ -4,7 +4,7 @@
 // - es idempotente por clave (la misma clave devuelve la misma respuesta);
 // - deja un movimiento en el libro mayor con el saldo resultante.
 import { randomInt } from 'node:crypto';
-import { HERO_CATALOG, HERO_IDS, STARTER_IDS, type HeroId } from '../shared/config';
+import { HERO_CATALOG, HERO_IDS, HEROES, STARTER_IDS, isSecret, type HeroId } from '../shared/config';
 import {
   ECONOMY, ODDS_SCALE, effectiveOdds, periods, positiveInt, resolveChest,
   type ChestType, type PityState,
@@ -202,6 +202,7 @@ export class Economy {
     const k = checkKey(key);
     return this.idempotent(userId, k, `unlock:${hero}`, async (c, w) => {
       if (HERO_CATALOG[hero].starter) throw new EconomyError('starter', 'Los héroes iniciales ya son gratis.', 409);
+      if (isSecret(hero)) throw new EconomyError('secret', 'Ese personaje no se puede desbloquear.', 403);
       const owned = await this.ownedHeroes(userId, c);
       if (owned.has(hero)) throw new EconomyError('owned', 'Ya tenés ese héroe.', 409);
       const cost = ECONOMY.unlockCost[HERO_CATALOG[hero].rarity];
@@ -396,7 +397,57 @@ export class Economy {
       this.db.query('SELECT id, chest_type, rarity, hero, duplicate, fragments, guarantee, created_at FROM chest_opening WHERE user_id = $1 ORDER BY id DESC LIMIT 50', [userId]),
       this.roles(userId),
     ]);
-    return { user: u.rows[0], roles, wallet: w.rows[0], heroes: heroes.rows, ledger: ledger.rows, openings: openings.rows };
+    const grants = await this.db.query('SELECT g.id, g.hero, g.action, g.reason, g.actor_id, a.name AS actor_name, g.created_at FROM hero_grant g LEFT JOIN "user" a ON a.id = g.actor_id WHERE g.user_id = $1 ORDER BY g.id DESC LIMIT 50', [userId]);
+    return { user: u.rows[0], roles, wallet: w.rows[0], heroes: heroes.rows, ledger: ledger.rows, openings: openings.rows, heroGrants: grants.rows };
+  }
+
+  /** Valida una asignación o retiro de un personaje secreto (sin aplicarlo). */
+  private async validateSecret(actor: string, body: Record<string, unknown>) {
+    await this.requireRole(actor, 'economy_admin');
+    const userId = body.userId;
+    if (typeof userId !== 'string' || userId.length > 64) throw new EconomyError('bad_user', 'Usuario inválido.');
+    const hero = body.hero;
+    if (!isHero(hero) || !isSecret(hero)) throw new EconomyError('bad_hero', 'Sólo se asignan o retiran personajes secretos.');
+    const action = body.action;
+    if (action !== 'grant' && action !== 'revoke') throw new EconomyError('bad_action', 'Acción inválida.');
+    const reason = typeof body.reason === 'string' ? body.reason.replace(/[\u0000-\u001f\u007f]/g, '').trim() : '';
+    if (reason.length < 5 || reason.length > 200) throw new EconomyError('bad_reason', 'El motivo es obligatorio (5 a 200 caracteres).');
+    const u = await this.db.query('SELECT name FROM "user" WHERE id = $1', [userId]);
+    if (!u.rowCount) throw new EconomyError('no_user', 'No existe ese usuario.', 404);
+    return { userId, name: u.rows[0].name as string, hero, heroName: HEROES[hero].name, action: action as 'grant' | 'revoke', reason };
+  }
+
+  /** Vista previa: a quién, qué y si es posible (para la confirmación del panel). */
+  async previewSecret(actor: string, body: Record<string, unknown>) {
+    const g = await this.validateSecret(actor, body);
+    const has = (await this.db.query('SELECT 1 FROM hero_unlock WHERE user_id = $1 AND hero = $2', [g.userId, g.hero])).rowCount! > 0;
+    return { ...g, owned: has, valid: g.action === 'grant' ? !has : has };
+  }
+
+  /**
+   * Asigna o retira un personaje secreto. Idempotente por clave del
+   * administrador; sin duplicados; no toca los demás héroes; deja auditoría y
+   * avisa al usuario. Al retirarlo, si lo tenía equipado vuelve a Spider-Man.
+   */
+  async setSecret(actor: string, body: Record<string, unknown>) {
+    const g = await this.validateSecret(actor, body);
+    const key = checkKey(body.key);
+    await this.ensureAccount(g.userId);
+    await this.ensureAccount(actor);
+    return this.idempotent(actor, key, `secret:${g.action}:${g.userId}:${g.hero}`, async (c) => {
+      await this.lock(c, g.userId);
+      if (g.action === 'grant') {
+        const ins = await c.query("INSERT INTO hero_unlock (user_id, hero, source) VALUES ($1, $2, 'admin') ON CONFLICT DO NOTHING", [g.userId, g.hero]);
+        if (!ins.rowCount) throw new EconomyError('owned', `${g.name} ya tiene a ${g.heroName}.`, 409);
+      } else {
+        const del = await c.query('DELETE FROM hero_unlock WHERE user_id = $1 AND hero = $2', [g.userId, g.hero]);
+        if (!del.rowCount) throw new EconomyError('not_owned', `${g.name} no tiene a ${g.heroName}.`, 409);
+        await c.query("UPDATE wallet SET equipped_hero = 'spider' WHERE user_id = $1 AND equipped_hero = $2", [g.userId, g.hero]);
+      }
+      await c.query('INSERT INTO hero_grant (user_id, hero, action, actor_id, reason) VALUES ($1, $2, $3, $4, $5)', [g.userId, g.hero, g.action, actor, g.reason]);
+      await c.query('INSERT INTO notification (user_id, kind, payload) VALUES ($1, $2, $3)', [g.userId, g.action === 'grant' ? 'hero_grant' : 'hero_revoke', JSON.stringify({ hero: g.hero, reason: g.reason })]);
+      return { userId: g.userId, name: g.name, hero: g.hero, action: g.action, reason: g.reason };
+    });
   }
 
   /** Valida una entrega o corrección y devuelve lo que se aplicaría (sin aplicarlo). */

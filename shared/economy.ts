@@ -4,13 +4,18 @@
 //
 // Cambiar cualquier valor exige subir ECONOMY.version: cada apertura y cada
 // movimiento del libro mayor guardan la versión con la que se resolvieron.
-import { HERO_CATALOG, type HeroId, type Rarity } from './config';
+import { HERO_CATALOG, isSecret, type HeroId, type Rarity } from './config';
 
 export const RARITIES: Rarity[] = ['common', 'rare', 'epic', 'legendary'];
 export type ChestType = 'standard' | 'elite';
 
 export const ECONOMY = {
-  version: 1,
+  /**
+   * 2: se suman Ibai (raro), Homero, CJ y Verity (épicos) y Baldi (legendario).
+   * Las probabilidades por rareza y las garantías no cambian; dentro de cada
+   * rareza el reparto es uniforme. Las aperturas ya confirmadas conservan su versión.
+   */
+  version: 2,
   currency: 'HeroCoins',
   /** Probabilidades base en partes por millón (suman 1 000 000). */
   chests: {
@@ -94,8 +99,9 @@ export function nextPity(p: PityState, r: Rarity): PityState {
   return { sinceEpic: p.sinceEpic + 1, sinceLegendary: p.sinceLegendary + 1 };
 }
 
+/** Héroes que pueden salir en cofres con esa rareza (nunca iniciales ni secretos). */
 export function heroesOfRarity(r: Rarity): HeroId[] {
-  return (Object.keys(HERO_CATALOG) as HeroId[]).filter((h) => HERO_CATALOG[h].rarity === r && !HERO_CATALOG[h].starter);
+  return (Object.keys(HERO_CATALOG) as HeroId[]).filter((h) => HERO_CATALOG[h].rarity === r && !HERO_CATALOG[h].starter && !isSecret(h));
 }
 
 export interface ChestOutcome {

@@ -39,7 +39,7 @@ describe('estabilidad con bots', () => {
     const b = makeBrain('x');
     for (let i = 0; i < 500; i++) {
       const bits = botInput(s, b);
-      expect(bits & ~127).toBe(0);
+      expect(bits & ~1023).toBe(0);
       expect((bits & IN.LEFT) && (bits & IN.RIGHT)).toBeFalsy();
       setInput(s, 'x', bits);
       step(s);

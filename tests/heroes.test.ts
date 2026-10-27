@@ -1,7 +1,7 @@
 // Héroes desbloqueables: cada habilidad y sus límites, Súper y bots.
 import { describe, expect, it } from 'vitest';
 import { botInput, makeBrain } from '../shared/bot';
-import { HERO_CATALOG, HERO_IDS, HEROES, HeroId, PLAYER, R, STADIUM, SUPER_HEROES } from '../shared/config';
+import { HERO_CATALOG, HERO_IDS, HEROES, HeroId, PLAYER, PUBLIC_HERO_IDS, R, SECRET_IDS, STADIUM, SUPER_HEROES } from '../shared/config';
 import { createGame, setInput, step } from '../shared/game';
 import { GameState, IN, Team } from '../shared/types';
 
@@ -43,8 +43,11 @@ function cast(s: GameState, id: string, slot: 'q' | 'e', n = 1) {
 }
 
 describe('catálogo', () => {
-  it('12 héroes: 4 iniciales gratis y 8 desbloqueables con la rareza pedida', () => {
-    expect(HERO_IDS).toHaveLength(12);
+  it('18 héroes: 4 iniciales gratis, 13 desbloqueables con la rareza pedida y 1 secreto', () => {
+    expect(HERO_IDS).toHaveLength(18);
+    expect(SECRET_IDS).toEqual(['thanos']);
+    expect(PUBLIC_HERO_IDS).toHaveLength(17);
+    expect(PUBLIC_HERO_IDS).not.toContain('thanos');
     const starters = HERO_IDS.filter((h) => HERO_CATALOG[h].starter);
     expect(starters).toEqual(['spider', 'batman', 'hulk', 'superman']);
     const r = (h: HeroId) => HERO_CATALOG[h].rarity;
@@ -52,6 +55,8 @@ describe('catálogo', () => {
     expect([r('cap'), r('panther')]).toEqual(['rare', 'rare']);
     expect([r('ironman'), r('flash')]).toEqual(['epic', 'epic']);
     expect([r('thor'), r('strange')]).toEqual(['legendary', 'legendary']);
+    expect([r('ibai'), r('homer'), r('cj'), r('verity'), r('baldi')]).toEqual(['rare', 'epic', 'epic', 'epic', 'legendary']);
+    expect(HEROES.thanos.gems).toHaveLength(5);
     for (const h of HERO_IDS) {
       expect(HEROES[h].q.desc.length).toBeGreaterThan(10);
       expect(SUPER_HEROES[h].e.desc.length).toBeGreaterThan(10);
@@ -110,12 +115,12 @@ describe('reglas comunes de los nuevos', () => {
     expect(s.players[1].sprint).toBe(0);
   });
 
-  it.each(['heroes', 'super'] as const)('bots con los 12 héroes en %s: estable y usan sus poderes', (mode) => {
-    const heroes = HERO_IDS.slice(4);
+  it.each(['heroes', 'super'] as const)('bots con los héroes públicos en %s: estable y usan sus poderes', (mode) => {
+    const heroes = PUBLIC_HERO_IDS.slice(4);
     const used = new Set<string>();
     for (let k = 0; k < heroes.length; k += 2) {
       const ids = ['r0', 'r1', 'b0', 'b1'];
-      const hs = [heroes[k], heroes[k + 1], HERO_IDS[k % 4], HERO_IDS[(k + 1) % 4]];
+      const hs = [heroes[k], heroes[(k + 1) % heroes.length], HERO_IDS[k % 4], HERO_IDS[(k + 1) % 4]];
       const s = createGame({ mode, timeLimitMin: 1, scoreLimit: 0, players: ids.map((id, i) => ({ id, team: i < 2 ? 'red' : 'blue', hero: hs[i] })) });
       let seed = 11 + k;
       const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);

@@ -352,6 +352,8 @@ describe('Capitán América E: protección de la pelota', () => {
     ball(s, 0, 0);
     cast(s, 'c', 'e');
     expect(s.ballShield).toBeGreaterThan(0);
+    // el capitán se aparta del cono de autoapuntado (si no, sería el objetivo: la pelota protegida no lo es)
+    place(s, 'c', 0, -185);
     place(s, 'a', x, y);
     s.ballHist = [];
     run(s, 30); // historial para Strange
@@ -632,8 +634,7 @@ describe('Thor', () => {
       place(s, 'b', s.ball.x, s.ball.y + BALL.radius + R);
       stuns += run(s, 1).filter((e) => e.type === 'stun' && e.id === 'b').length;
     }
-    // stun + inmunidad duran menos que la electricidad: el «una vez» lo garantiza la aplicación
-    expect(c.stunTicks + STUN.immuneTicks).toBeLessThan(c.elecTicks);
+    // aunque stun + inmunidad terminen antes que la electricidad, la aplicación recuerda a quién ya aturdió
     expect(stuns).toBe(1);
     expect(b.stun).toBe(0);
     // Thor también se aturde al tocarla

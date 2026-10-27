@@ -1,6 +1,7 @@
 // Manejo de mensajes de un cliente conectado. Sin dependencias de Node: lo usa
 // el servidor WebSocket y también el navegador anfitrión en modo WebRTC.
 import { makeNonce, verifyAdmin } from '../shared/admin';
+import { isSecret } from '../shared/config';
 import { MAX_NICK, PROTOCOL_VERSION, cleanText, parseClientMessage, type AccountInfo } from '../shared/protocol';
 import { RateLimiter } from './rate';
 import type { Client, Lobby } from './room';
@@ -120,7 +121,7 @@ export function createHandler(lobby: Lobby, client: Client, opts: HandlerOptions
     switch (m.t) {
       case 'side': err = room.setSide(client.id, m.side, m.target); break;
       case 'hero':
-        if (room.official && client.userId && lobby.official) {
+        if ((room.official || isSecret(m.hero)) && client.userId && lobby.official) {
           // colección leída en el servidor en cada cambio (no se confía en el cliente)
           const uid = client.userId;
           void lobby.official.ownedHeroes(uid).then((owned) => {

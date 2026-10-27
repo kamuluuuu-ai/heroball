@@ -20,11 +20,17 @@ describe('configuración', () => {
     expect(ECONOMY.welcome).toEqual({ coins: 400, standard: 2, elite: 0 });
   });
 
-  it('los iniciales no salen en cofres; cada rareza tiene sus dos héroes', () => {
+  it('los iniciales y el secreto no salen en cofres; composición versión 2', () => {
+    expect(ECONOMY.version).toBe(2);
+    expect(heroesOfRarity('common')).toEqual(['hawkeye', 'widow']);
+    expect(heroesOfRarity('rare')).toEqual(['cap', 'panther', 'ibai']);
+    expect(heroesOfRarity('epic')).toEqual(['ironman', 'flash', 'homer', 'cj', 'verity']);
+    expect(heroesOfRarity('legendary')).toEqual(['thor', 'strange', 'baldi']);
     for (const r of RARITIES) {
-      const pool = heroesOfRarity(r);
-      expect(pool).toHaveLength(2);
-      for (const h of pool) expect(STARTER_IDS).not.toContain(h);
+      for (const h of heroesOfRarity(r)) {
+        expect(STARTER_IDS).not.toContain(h);
+        expect(h).not.toBe('thanos');
+      }
     }
   });
 });

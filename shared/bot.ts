@@ -2,8 +2,8 @@
 // no toca la física directamente.
 import { R, STADIUM, powersFor } from './config';
 import { hasPowers, teamDir } from './game';
-import { ballGuarded, boltTarget } from './powers';
-import { GameState, IN, PlayerState } from './types';
+import { ballGuarded, boltTarget, gloveTarget, quizTarget } from './powers';
+import { GameState, IN, IN_NUM_SHIFT, inNum, PlayerState } from './types';
 
 export interface BotBrain {
   id: string;
@@ -47,10 +47,31 @@ function nearestRival(s: GameState, me: PlayerState): { d: number; align: number
   return best;
 }
 
+/**
+ * Quiz de Baldi: el bot responde tras una demora razonable según su
+ * habilidad y acierta con más probabilidad cuanto mejor es. Cada respuesta es
+ * una pulsación nueva (suelta entre intentos).
+ */
+function quizBits(me: PlayerState, brain: BotBrain, rnd: () => number): number {
+  const q = me.quiz!;
+  const elapsed = q.max - q.ticks;
+  const react = Math.round(60 * (1.5 - brain.skill) + q.wrong * 20);
+  if (elapsed < react || inNum(brain.lastBits) !== 0) return 0;
+  const right = rnd() < 0.55 + brain.skill * 0.4;
+  const idx = right ? q.answer : (q.answer + 1 + Math.floor(rnd() * 2)) % 3;
+  return (idx + 1) << IN_NUM_SHIFT;
+}
+
 export function botInput(s: GameState, brain: BotBrain, rnd: () => number = Math.random): number {
   const me = s.players.find((p) => p.id === brain.id);
   if (!me) return 0;
-  const b = s.ball;
+  if (me.quiz) {
+    brain.lastBits = quizBits(me, brain, rnd);
+    return brain.lastBits;
+  }
+  // Gema de la Realidad: los rivales de Thanos persiguen la pelota falsa (misma percepción que un humano)
+  const il = s.illusion;
+  const b = il && il.team === me.team ? { ...s.ball, x: il.x, y: il.y, vx: 0, vy: 0 } : s.ball;
   const dir = teamDir(me.team);
   const goalX = dir * STADIUM.fieldW;
   const ownX = -goalX;
@@ -179,6 +200,33 @@ export function botInput(s: GameState, brain: BotBrain, rnd: () => number = Math
         // portal al arco de su mitad: volver a defender si está lejos de la pelota en campo propio
         else if (useE(!isAttacker && me.half === -dir && ballOwnSide && d > 10 * R)) bits |= IN.E;
         break;
+      case 'homer': {
+        const near = nearestRival(s, me);
+        // rosquilla: frena una pelota peligrosa o atrapa al rival que la lleva
+        if (useQ(!guarded && d < P.homer.donut.range * 0.85 && facing > 0.7 && ballOwnSide)) bits |= IN.Q;
+        else if (useE(near !== null && near.d < 4 * R && !isAttacker)) bits |= IN.E;
+        break;
+      }
+      case 'cj':
+        // una bala por pulsación (el flanco lo asegura lastBits)
+        if (useQ(!guarded && me.ammo > 0 && me.shotGap === 0 && d < P.cj.gun.range * 0.8 && facing > 0.85 && towardGoal)) bits |= IN.Q;
+        else if (useE(isAttacker && d > 6 * R)) bits |= IN.E;
+        break;
+      case 'baldi':
+        // regla: detiene una pelota que viene hacia el arco propio
+        if (useQ(!guarded && ballOwnSide && d < P.baldi.ruler.range * 0.85 && facing > 0.7 && b.vx * dir < -2)) bits |= IN.Q;
+        else if (useE(quizTarget(s, me) !== null)) bits |= IN.E;
+        break;
+      case 'ibai':
+        if (useQ(gloveTarget(s, me) !== null)) bits |= IN.Q;
+        else if (useE(!isAttacker && ballOwnSide && d < 6 * R)) bits |= IN.E;
+        break;
+      case 'verity': {
+        const near = nearestRival(s, me);
+        if (useQ(isAttacker && d < 6 * R)) bits |= IN.Q;
+        else if (useE(near !== null && near.d < P.verity.tnt.range * 0.8 && near.align > 0.6)) bits |= IN.E;
+        break;
+      }
     }
   }
   brain.lastBits = bits;

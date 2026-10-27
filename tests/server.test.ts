@@ -15,7 +15,7 @@ describe('validación de mensajes', () => {
   it('rechaza JSON inválido, tipos desconocidos y campos fuera de rango', () => {
     expect(parseClientMessage('no json')).toBeNull();
     expect(parseClientMessage('{"t":"hack"}')).toBeNull();
-    expect(parseClientMessage('{"t":"in","s":1,"b":999}')).toBeNull();
+    expect(parseClientMessage('{"t":"in","s":1,"b":1024}')).toBeNull();
     expect(parseClientMessage('{"t":"in","s":-1,"b":1}')).toBeNull();
     expect(parseClientMessage('{"t":"hero","hero":"loki"}')).toBeNull();
     expect(parseClientMessage('{"t":"settings","settings":{"teamSize":7}}')).toBeNull();

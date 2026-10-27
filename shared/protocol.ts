@@ -1,6 +1,6 @@
 // Protocolo cliente-servidor (JSON sobre WebSocket) y validación de mensajes.
 import { HERO_IDS, HeroId } from './config';
-import type { GameEvent, GameMode, GameState, Side, Team } from './types';
+import { INPUT_MASK, type GameEvent, type GameMode, type GameState, type Side, type Team } from './types';
 
 export const PROTOCOL_VERSION = 1;
 export const MAX_MESSAGE_BYTES = 2048;
@@ -28,6 +28,12 @@ export interface RoomSettings {
    * aplica al próximo reinicio.
    */
   cooldowns: 'normal' | 'none';
+  /**
+   * Personajes especiales (Thanos): sólo en salas casuales del servidor, para
+   * quien lo tenga en su colección (verificado en el servidor). Mientras esté
+   * activo la sala no es oficial: sin clasificación ni recompensas.
+   */
+  specials: boolean;
 }
 
 export const DEFAULT_SETTINGS: RoomSettings = {
@@ -38,6 +44,7 @@ export const DEFAULT_SETTINGS: RoomSettings = {
   maxPlayers: 10,
   official: false,
   cooldowns: 'normal',
+  specials: false,
 };
 
 export interface RoomSummary {
@@ -50,6 +57,7 @@ export interface RoomSummary {
   playing: boolean;
   official: boolean;
   cooldowns: 'normal' | 'none';
+  specials: boolean;
 }
 
 export interface RoomMember {
@@ -198,6 +206,10 @@ export function sanitizeSettings(raw: unknown): Partial<RoomSettings> | null {
     if (r.cooldowns !== 'normal' && r.cooldowns !== 'none') return null;
     out.cooldowns = r.cooldowns;
   }
+  if ('specials' in r) {
+    if (typeof r.specials !== 'boolean') return null;
+    out.specials = r.specials;
+  }
   return out;
 }
 
@@ -259,7 +271,7 @@ export function parseClientMessage(raw: string): ClientMsg | null {
       if (!isStr(o.sig, 200)) return null;
       return { t: 'admin', sig: o.sig };
     case 'in':
-      if (!isInt(o.s, 0, 2 ** 31) || !isInt(o.b, 0, 127)) return null;
+      if (!isInt(o.s, 0, 2 ** 31) || !isInt(o.b, 0, INPUT_MASK)) return null;
       return { t: 'in', s: o.s, b: o.b };
     case 'ping':
       if (typeof o.c !== 'number' || !Number.isFinite(o.c)) return null;

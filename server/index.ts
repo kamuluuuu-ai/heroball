@@ -57,7 +57,11 @@ if (env.DATABASE_URL) {
     adminCoins: Number(env.ADMIN_MAX_COINS ?? 100_000),
     adminChests: Number(env.ADMIN_MAX_CHESTS ?? 100),
   });
-  api = createApi({ auth, economy, origins: ORIGINS, moderatorSigningKey: env.MODERATOR_SIGNING_KEY || undefined });
+  api = createApi({
+    auth, economy, origins: ORIGINS, moderatorSigningKey: env.MODERATOR_SIGNING_KEY || undefined,
+    // tras asignar o retirar un secreto, las salas releen la colección de esa cuenta
+    onHeroesChanged: (userId) => void lobby.refreshOwned(userId).catch((e) => console.error('No se pudo releer la colección', userId, e)),
+  });
   const eco = economy;
   identify = async (token) => {
     const u = await sessionUser(auth, bearerHeaders(token));

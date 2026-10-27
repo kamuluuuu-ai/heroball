@@ -174,15 +174,23 @@ describe('Spider-Man', () => {
 });
 
 describe('autoapuntado de Q', () => {
-  it('la telaraña apunta sola a la pelota aunque mires a otro lado', () => {
+  it('la telaraña apunta sola a la pelota dentro del cono de 100° aunque no mires exacto', () => {
     const s = game([{ id: 'a', team: 'red', hero: 'spider' }]);
     place(s, 'a', -100, 0);
-    s.ball.x = -100 + 4 * R; s.ball.y = 4 * R; // diagonal abajo-derecha
-    aim(s, 'a', -1, 0); // mirando hacia atrás
+    s.ball.x = -100 + 4 * R; s.ball.y = 4 * R; // diagonal abajo-derecha (45°)
+    aim(s, 'a', 1, 0);
     tick(s, { a: IN.Q });
     let tethered = false;
     for (let i = 0; i < 20; i++) { tick(s, { a: 0 }); tethered ||= s.tethers.length > 0; }
     expect(tethered).toBe(true);
+    // detrás (fuera del cono): sale hacia donde mira
+    const t = game([{ id: 'a', team: 'red', hero: 'spider' }]);
+    place(t, 'a', -100, 0);
+    t.ball.x = -100 - 4 * R; t.ball.y = R;
+    aim(t, 'a', 1, 0);
+    tick(t, { a: IN.Q });
+    expect(t.projectiles[0].vx).toBeGreaterThan(0);
+    expect(t.projectiles[0].vy).toBe(0);
   });
 
   it('la telaraña anticipa una pelota en movimiento', () => {

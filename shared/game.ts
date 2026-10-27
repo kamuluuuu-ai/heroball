@@ -1,8 +1,9 @@
 // Reglas del partido: saque, goles, tiempo, gol de oro, patadas y entradas.
 import { HeroId, KICK, LIMITS, PLAYER, RULES, STADIUM, TICK_RATE, powersFor } from './config';
 import { clampSpeed, makeDisc, Seg, stadium, stepWorld } from './physics';
-import { accelMult, activate, applyDash, applyRush, clearEffects, kickMult, speedLimitMult, updatePowers } from './powers';
-import { GameMode, GameState, IN, PlayerState, Team } from './types';
+import { GEM_IDS, POWERS } from './config';
+import { accelMult, activate, applyDash, applyRush, ballImpulseFactor, clearEffects, controlling, incapacitated, kickMult, playerInvMass, powerKickMult, quizInput, speedLimitMult, updatePowers } from './powers';
+import { GameMode, GameState, IN, INPUT_MASK, inNum, PlayerState, Team } from './types';
 
 export interface GameOptions {
   mode: GameMode;
@@ -51,6 +52,10 @@ export function createGame(o: GameOptions): GameState {
     ballElecHit: [],
     ballHist: [],
     ballWarp: 0,
+    ballDonut: 0,
+    plHist: {},
+    illusion: null,
+    illusionGap: 0,
   };
   for (const p of o.players) addPlayer(s, p.id, p.team, p.hero);
   resetKickoff(s, 'red');
@@ -68,6 +73,10 @@ function newPlayer(id: string, team: Team, hero: HeroId): PlayerState {
     dash: 0, fury: 0, superSpeed: 0,
     slowPct: 0, slowTicks: 0, capSlow: 0, capSlowTicks: 0, slowNow: 0,
     stun: 0, stunImmune: 0,
+    trap: 0, mind: 0, mindBy: null, incapRun: 0,
+    slip: 0, jet: 0, ammo: POWERS.cj.gun.shots, shotGap: 0, giant: 0, anger: 0,
+    quiz: null, quizImmune: 0,
+    gem: 0, gemCd: GEM_IDS.map(() => 0), gemGap: 0, powerKick: 0,
     rush: 0, rushSpeed: 0, rushDx: 0, rushDy: 0,
     evade: 0, evadeResist: 0, sprint: 0, trailBoost: 0,
     half: team === 'red' ? -1 : 1,
@@ -98,7 +107,16 @@ export function removePlayer(s: GameState, id: string): void {
   s.players = s.players.filter((p) => p.id !== id);
   s.projectiles = s.projectiles.filter((p) => p.owner !== id);
   s.tethers = s.tethers.filter((t) => t.owner !== id && t.target !== id);
-  s.zones = s.zones.filter((z) => z.owner !== id);
+  s.zones = s.zones.filter((z) => z.owner !== id && z.target !== id);
+  // quien controlaba deja de hacerlo; su ilusión termina; su historial se descarta
+  for (const o of s.players) {
+    if (o.mindBy === id) o.mind = 0;
+  }
+  if (s.illusion?.by === id) {
+    s.illusion = null;
+    s.illusionGap = powersFor(s.mode).thanos.reality.between;
+  }
+  delete s.plHist[id];
   // su protección de la pelota termina con él; la electricidad ya aplicada sigue
   if (s.ballShieldBy === id) {
     s.ballShield = 0;
@@ -140,16 +158,18 @@ export function resetKickoff(s: GameState, team: Team): void {
     p.ay = 0;
     p.kickArmed = false;
     p.kickCd = 0;
-    // todos empiezan el saque con poderes disponibles
+    // todos empiezan el saque con poderes disponibles (y el cargador de CJ lleno)
     p.cdQ = 0;
     p.cdE = 0;
+    p.ammo = POWERS.cj.gun.shots;
+    p.gemCd = GEM_IDS.map(() => 0);
   }
   s.events.push({ type: 'kickoff' });
 }
 
 export function setInput(s: GameState, id: string, bits: number): void {
   const p = s.players.find((o) => o.id === id);
-  if (p) p.input = bits & 127;
+  if (p) p.input = bits & INPUT_MASK;
 }
 
 /** Héroes y Súper usan poderes; Clásico no. */
@@ -170,13 +190,19 @@ function kickoffBarriers(s: GameState): Seg[] {
 }
 
 function updatePlayer(s: GameState, p: PlayerState): void {
-  // aturdido: sin movimiento voluntario, patada ni poderes (las entradas se
-  // siguen registrando, así una tecla mantenida no se dispara al terminar)
-  const stunned = p.stun > 0;
+  // quiz abierto: el número de la entrada es la respuesta
+  if (p.quiz && powersEnabled(s)) quizInput(s, p);
+  // aturdido, controlado o con quiz: sin movimiento voluntario, patada ni
+  // poderes (las entradas se siguen registrando, así una tecla mantenida no se
+  // dispara al terminar)
+  const stunned = incapacitated(p);
   const bits = stunned ? 0 : p.input;
   const pressed = stunned ? 0 : bits & ~p.prevInput;
   const held = (bits & IN.KICK) !== 0;
   if (p.d.x !== 0) p.half = p.d.x < 0 ? -1 : 1;
+  // Thanos: 1–5 eligen gema
+  const num = inNum(bits);
+  if (p.hero === 'thanos' && num >= 1 && num <= GEM_IDS.length) p.gem = num - 1;
 
   // patada: se arma al apretar; mantener no repite salvo holdRepeatTicks > 0
   if (held) {
@@ -189,12 +215,17 @@ function updatePlayer(s: GameState, p: PlayerState): void {
   }
   if (p.kickCd > 0) p.kickCd--;
 
+  // movimiento: atrapado por la rosquilla no se mueve; controlado, lo mueven las
+  // direcciones de quien controla; quien controla se queda quieto
+  let mv = bits;
+  if (p.trap > 0 || controlling(s, p)) mv = 0;
+  if (p.mind > 0) mv = s.players.find((o) => o.id === p.mindBy)?.input ?? 0;
   let dx = 0;
   let dy = 0;
-  if (bits & IN.UP) dy -= 1;
-  if (bits & IN.DOWN) dy += 1;
-  if (bits & IN.LEFT) dx -= 1;
-  if (bits & IN.RIGHT) dx += 1;
+  if (mv & IN.UP) dy -= 1;
+  if (mv & IN.DOWN) dy += 1;
+  if (mv & IN.LEFT) dx -= 1;
+  if (mv & IN.RIGHT) dx += 1;
   if (dx !== 0 && dy !== 0) {
     dx *= Math.SQRT1_2;
     dy *= Math.SQRT1_2;
@@ -210,9 +241,10 @@ function updatePlayer(s: GameState, p: PlayerState): void {
     if (pressed & IN.E) activate(s, p, 'e');
   }
 
-  const fury = p.fury > 0;
-  p.d.invMass = fury ? PLAYER.invMass / powersFor(s.mode).hulk.fury.massMult : PLAYER.invMass;
+  p.d.invMass = playerInvMass(s, p);
   p.d.damping = held ? PLAYER.kickingDamping : PLAYER.damping;
+  // charco de cerveza: menos rozamiento (se resbala), con vuelta gradual
+  if (p.slip > 0) p.d.damping += (powersFor(s.mode).homer.beer.damping - p.d.damping) * p.slip;
 
   if (p.rush > 0) {
     applyRush(s, p);
@@ -239,7 +271,10 @@ function tryKick(s: GameState, p: PlayerState): void {
   if (dist === 0 || dist - b.r - p.d.r >= KICK.range) return;
   const nx = dx / dist;
   const ny = dy / dist;
-  const m = hasPowers(s) ? kickMult(s, p) : 1;
+  // Gema del Poder: la próxima patada (la protección del Capitán anula el extra);
+  // la rosquilla en la pelota reduce el impulso
+  const m = hasPowers(s) ? kickMult(s, p) * powerKickMult(s, p) * ballImpulseFactor(s) : 1;
+  if (p.powerKick > 0) p.powerKick = 0;
   const k = PLAYER.kickStrength * m;
   b.vx += nx * k * b.invMass;
   b.vy += ny * k * b.invMass;

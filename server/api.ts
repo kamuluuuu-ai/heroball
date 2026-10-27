@@ -17,6 +17,8 @@ export interface ApiOptions {
   origins: string[];
   /** Clave privada (PKCS#8 base64) para firmar permisos de moderación en salas P2P. */
   moderatorSigningKey?: string;
+  /** Aviso a las salas cuando cambia la colección de una cuenta (asignación o retiro de un secreto). */
+  onHeroesChanged?: (userId: string) => void;
 }
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => Promise<boolean>;
@@ -156,6 +158,17 @@ export function createApi(o: ApiOptions): Handler {
         const b = await readBody(req);
         const correction = path === '/api/admin/correct' || (path === '/api/admin/preview' && b.correction === true);
         json(res, 200, path === '/api/admin/preview' ? await eco.previewGrant(u.id, b, correction) : await eco.grant(u.id, b, correction));
+        return true;
+      }
+      if (post && (path === '/api/admin/secret/preview' || path === '/api/admin/secret')) {
+        const u = await user(req);
+        const b = await readBody(req);
+        if (path === '/api/admin/secret/preview') json(res, 200, await eco.previewSecret(u.id, b));
+        else {
+          const out = await eco.setSecret(u.id, b);
+          o.onHeroesChanged?.(out.userId);
+          json(res, 200, out);
+        }
         return true;
       }
       return false;

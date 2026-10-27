@@ -1,5 +1,5 @@
 // Salas en memoria, permisos y bucle autoritativo de cada partido.
-import { HERO_IDS, HeroId, POWER_LIMITS, SNAPSHOT_EVERY_TICKS, STARTER_IDS, TICK_RATE } from '../shared/config';
+import { HeroId, POWER_LIMITS, POWERS, PUBLIC_HERO_IDS, SNAPSHOT_EVERY_TICKS, STARTER_IDS, TICK_RATE, isSecret } from '../shared/config';
 import { BotBrain, botInput, makeBrain } from '../shared/bot';
 import { ECONOMY } from '../shared/economy';
 import { addPlayer, createGame, removePlayer, requestHero, setInput, step } from '../shared/game';
@@ -50,6 +50,9 @@ interface OfficialMatch {
 }
 
 const POWER_BITS = IN.KICK | IN.Q | IN.E;
+
+/** Recursos que no se recuperan saliendo y volviendo durante el mismo partido (cargador de CJ, recargas). */
+interface Kept { ammo: number; cdQ: number; cdE: number; gemCd: number[] }
 const MAX_QUEUE = 6;
 
 let roomCounter = 0;
@@ -71,13 +74,17 @@ export class Room {
   /** Sólo en el servidor con base de datos; el anfitrión P2P nunca lo tiene. */
   readonly officialAdapter: OfficialAdapter | null;
   private match: OfficialMatch | null = null;
+  /** Por cuenta (o id de miembro): lo que tenía al salir del partido en curso. */
+  private kept = new Map<string, Kept>();
 
   constructor(name: string, settings: Partial<RoomSettings>, onEmpty: (r: Room) => void, id?: string, official: OfficialAdapter | null = null) {
     this.id = id ?? (++roomCounter).toString(36) + Math.random().toString(36).slice(2, 6);
     this.name = cleanText(name, MAX_ROOM_NAME) || 'Sala HeroBall';
     this.officialAdapter = official;
     this.settings = { ...DEFAULT_SETTINGS, ...settings };
-    if (this.settings.official && (!this.officialCapable(this.settings.mode) || this.settings.cooldowns === 'none')) this.settings.official = false;
+    if (this.settings.official && (!this.officialCapable(this.settings.mode) || this.settings.cooldowns === 'none' || this.settings.specials)) this.settings.official = false;
+    // personajes especiales: sólo donde el servidor puede verificar la colección
+    if (this.settings.specials && !this.officialAdapter) this.settings.specials = false;
     this.onEmpty = onEmpty;
   }
 
@@ -86,12 +93,22 @@ export class Room {
   }
 
   get official(): boolean {
-    // sin cooldowns nunca es oficial, aunque alguien intente declararlo
-    return this.settings.official && this.officialAdapter !== null && this.settings.cooldowns !== 'none';
+    // sin cooldowns o con personajes especiales nunca es oficial, aunque alguien intente declararlo
+    return this.settings.official && this.officialAdapter !== null && this.settings.cooldowns !== 'none' && !this.settings.specials;
   }
 
-  /** ¿Puede este cliente usar el héroe en esta sala? (colección en salas oficiales) */
+  /** ¿Se permiten personajes especiales? Sólo casual, en el servidor que verifica colecciones. */
+  get specials(): boolean {
+    return this.settings.specials && this.officialAdapter !== null && !this.official;
+  }
+
+  /**
+   * ¿Puede este cliente usar el héroe en esta sala? Colección en salas
+   * oficiales; los secretos, sólo con personajes especiales y si la colección
+   * (leída en el servidor) lo tiene.
+   */
   heroAllowed(c: Client | undefined, hero: HeroId): boolean {
+    if (isSecret(hero)) return this.specials && !!c?.userId && !!c.owned?.has(hero);
     if (!this.official) return true;
     return STARTER_IDS.includes(hero) || !!c?.owned?.has(hero);
   }
@@ -104,13 +121,13 @@ export class Room {
     return {
       id: this.id, name: this.name, players: this.members.size, maxPlayers: this.settings.maxPlayers,
       mode: this.settings.mode, teamSize: this.settings.teamSize, playing: this.game !== null, official: this.official,
-      cooldowns: this.settings.cooldowns,
+      cooldowns: this.settings.cooldowns, specials: this.specials,
     };
   }
 
   info(): RoomInfo {
     return {
-      id: this.id, name: this.name, settings: { ...this.settings, official: this.official }, hostId: this.hostId, playing: this.game !== null,
+      id: this.id, name: this.name, settings: { ...this.settings, official: this.official, specials: this.specials }, hostId: this.hostId, playing: this.game !== null,
       members: [...this.members.values()].map((m) => ({
         id: m.id, nick: m.nick, side: m.side, hero: m.hero, bot: m.bot,
         host: m.id === this.hostId, admin: !!m.client?.admin, verified: !!m.client?.userId, ping: m.client?.ping ?? 0,
@@ -154,7 +171,7 @@ export class Room {
     if (!m) return;
     this.members.delete(id);
     if (m.client) m.client.room = null;
-    if (this.game) removePlayer(this.game, id);
+    if (this.game) this.keep(m);
     if (this.humans().length === 0) {
       this.members.clear();
       this.game = null;
@@ -209,16 +226,50 @@ export class Room {
     m.queue = [];
     m.lastBits = 0;
     if (this.game) {
-      if (side === 'spec') removePlayer(this.game, m.id);
-      else addPlayer(this.game, m.id, side, m.hero);
+      if (side === 'spec') this.keep(m);
+      else this.restore(m, addPlayer(this.game, m.id, side, m.hero));
     }
     this.sendRoom();
     return null;
   }
 
+  /** Guarda el cargador y las recargas de quien sale del partido y lo quita de la simulación. */
+  private keep(m: Member): void {
+    const g = this.game!;
+    const p = g.players.find((o) => o.id === m.id);
+    if (p) this.kept.set(m.client?.userId ?? m.id, { ammo: p.ammo, cdQ: p.cdQ, cdE: p.cdE, gemCd: [...p.gemCd] });
+    removePlayer(g, m.id);
+  }
+
+  /** Al volver al mismo partido (reconexión o cambio de lado) no se recupera nada gratis. */
+  private restore(m: Member, p: GameState['players'][number]): void {
+    const k = this.kept.get(m.client?.userId ?? m.id);
+    if (!k) return;
+    p.ammo = Math.min(k.ammo, POWERS.cj.gun.shots);
+    p.cdQ = k.cdQ;
+    p.cdE = k.cdE;
+    p.gemCd = [...k.gemCd];
+  }
+
+  /** La colección de una cuenta cambió: si su personaje especial ya no vale, pasa a Spider-Man en el próximo saque. */
+  ownedChanged(userId: string, owned: Set<HeroId>): void {
+    for (const m of this.members.values()) {
+      if (m.client?.userId !== userId) continue;
+      m.client.owned = owned;
+      if (isSecret(m.hero) && !this.heroAllowed(m.client, m.hero)) {
+        m.hero = 'spider';
+        if (this.game) requestHero(this.game, m.id, 'spider');
+        this.sendRoom();
+      }
+    }
+  }
+
   setHero(id: string, hero: HeroId): string | null {
     const m = this.members.get(id);
     if (!m) return null;
+    if (isSecret(hero) && !this.heroAllowed(m.client, hero)) {
+      return this.specials ? 'Ese personaje especial no está en tu colección.' : 'Los personajes especiales sólo se usan en salas casuales del servidor con «Personajes especiales» activado.';
+    }
     if (!this.heroAllowed(m.client, hero)) return 'Ese héroe está bloqueado en tu colección: en partidas oficiales sólo podés usar los que tenés.';
     m.hero = hero;
     // durante el partido: se aplica en el próximo saque, sin reiniciar recargas
@@ -245,7 +296,13 @@ export class Room {
     if (next.official && !this.officialAdapter) return 'Las partidas oficiales sólo existen en el servidor de HeroBall (no en salas del navegador).';
     if (next.official && !OFFICIAL_MODES.includes(next.mode)) return 'El modo Súper es casual: elegí Héroes o Clásico para una partida oficial.';
     if (next.official && next.cooldowns === 'none') return 'Sin cooldowns es siempre casual: no puede ser una partida oficial.';
+    if (next.specials && !this.officialAdapter) return 'Los personajes especiales sólo existen en el servidor de HeroBall (no en salas del navegador).';
+    if (next.official && next.specials) return 'Con personajes especiales la sala es casual: no puede ser oficial.';
     this.settings = next;
+    // sin personajes especiales, quien tenía uno vuelve a un inicial
+    for (const m of this.members.values()) {
+      if (isSecret(m.hero) && !this.heroAllowed(m.client, m.hero)) m.hero = 'spider';
+    }
     if (this.official) {
       // oficial: sin bots, invitados a espectadores y héroes de la colección
       for (const m of [...this.members.values()]) {
@@ -274,6 +331,7 @@ export class Room {
       mode: this.settings.mode, timeLimitMin: this.settings.timeLimitMin, scoreLimit: this.settings.scoreLimit, players,
       noCooldowns: this.settings.cooldowns === 'none',
     });
+    this.kept.clear();
     for (const m of this.members.values()) {
       m.queue = [];
       m.lastBits = 0;
@@ -321,7 +379,8 @@ export class Room {
     if (this.members.size >= this.settings.maxPlayers) return 'La sala está llena.';
     if (this.teamCount(side) >= this.settings.teamSize) return 'Ese equipo está completo.';
     const id = 'b' + (++botCounter).toString(36);
-    const hero = HERO_IDS[botCounter % HERO_IDS.length];
+    // los bots nunca usan personajes secretos
+    const hero = PUBLIC_HERO_IDS[botCounter % PUBLIC_HERO_IDS.length];
     const m: Member = {
       id, nick: `Bot ${botCounter}`, side, hero, bot: true, joinedAt: ++joinCounter,
       brain: makeBrain(id, 0.75), queue: [], lastBits: 0, ack: 0, starved: 0, lastActive: 0,
@@ -497,11 +556,14 @@ export class Room {
     // el historial de la pelota (rebobinar) sólo lo usa la autoridad: no viaja
     const saved = g.events;
     const hist = g.ballHist;
+    const plHist = g.plHist;
     g.events = [];
     g.ballHist = [];
+    g.plHist = {};
     const stateJson = JSON.stringify(g);
     g.events = saved;
     g.ballHist = hist;
+    g.plHist = plHist;
     const evJson = JSON.stringify(this.events);
     this.snapBytes = stateJson.length + evJson.length + 40;
     this.events = [];
@@ -530,5 +592,12 @@ export class Lobby {
 
   tickAll(): void {
     for (const r of this.rooms.values()) r.tick();
+  }
+
+  /** Relee la colección de una cuenta conectada (p. ej. tras retirarle un secreto) y aplica el cambio en sus salas. */
+  async refreshOwned(userId: string): Promise<void> {
+    if (!this.official) return;
+    const owned = await this.official.ownedHeroes(userId);
+    for (const r of this.rooms.values()) r.ownedChanged(userId, owned);
   }
 }

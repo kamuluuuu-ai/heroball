@@ -308,11 +308,96 @@ function strange(c: Ctx, r: number) {
   c.fill();
 }
 
-const DRAW: Record<HeroId, (c: Ctx, r: number) => void> = { spider, batman, hulk, superman, hawkeye, widow, cap, panther, ironman, flash, thor, strange };
+/** Sin imagen cargada: un disco con la inicial (nunca se rediseña el personaje). */
+function placeholder(fill: string, letter: string) {
+  return (c: Ctx, r: number) => {
+    base(c, r, fill);
+    c.fillStyle = '#fff';
+    c.font = `bold ${Math.round(r * 1.1)}px system-ui, sans-serif`;
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.fillText(letter, 0, r * 0.06);
+  };
+}
 
-export function drawHero(c: Ctx, hero: HeroId, r: number): void {
+const DRAW: Record<HeroId, (c: Ctx, r: number) => void> = {
+  spider, batman, hulk, superman, hawkeye, widow, cap, panther, ironman, flash, thor, strange,
+  homer: placeholder('#E8C520', 'H'),
+  cj: placeholder('#2E7D32', 'CJ'),
+  baldi: placeholder('#3A7BD5', 'B'),
+  ibai: placeholder('#7A4FB3', 'I'),
+  verity: placeholder('#C2185B', 'V'),
+  thanos: placeholder('#6A3FA0', 'T'),
+};
+
+// ---- retratos con las imágenes del usuario (recortes circulares en public/heroes)
+type PortraitKey = HeroId | 'verity-angry';
+const PORTRAIT_FILE: Partial<Record<PortraitKey, string>> = {
+  homer: 'homer.png', cj: 'cj.png', baldi: 'baldi.png', ibai: 'ibai.png', verity: 'verity.png', 'verity-angry': 'verity-angry.png', thanos: 'thanos.png',
+};
+const portraits = new Map<PortraitKey, HTMLImageElement>();
+const loadedListeners = new Set<() => void>();
+
+function portrait(key: PortraitKey): HTMLImageElement | null {
+  const file = PORTRAIT_FILE[key];
+  if (!file || typeof Image === 'undefined') return null;
+  let img = portraits.get(key);
+  if (!img) {
+    img = new Image();
+    img.decoding = 'async';
+    img.onload = () => {
+      for (const f of loadedListeners) f();
+    };
+    img.src = `${import.meta.env.BASE_URL}heroes/${file}`;
+    portraits.set(key, img);
+  }
+  return img.complete && img.naturalWidth > 0 ? img : null;
+}
+
+/** Para redibujar las insignias cuando termina de cargar un retrato. */
+export function onPortraitLoad(f: () => void): () => void {
+  loadedListeners.add(f);
+  return () => loadedListeners.delete(f);
+}
+
+/** Carga anticipada (menú y selección) para que la partida no empiece con iniciales. */
+export function preloadPortraits(): void {
+  for (const k of Object.keys(PORTRAIT_FILE) as PortraitKey[]) portrait(k);
+}
+
+/**
+ * Dibuja el héroe dentro de un círculo de radio r (el anillo de equipo queda
+ * fuera). Con imagen: recorte circular sin deformar; si no cargó, el dibujo
+ * propio o la inicial. `angry`: retrato enojado de Verity durante su Q.
+ */
+export function drawHero(c: Ctx, hero: HeroId, r: number, opts: { angry?: boolean } = {}): void {
   c.save();
-  DRAW[hero](c, r);
+  const img = (hero === 'verity' && opts.angry ? portrait('verity-angry') : null) ?? portrait(hero);
+  if (img) {
+    circle(c, 0, 0, r);
+    c.clip();
+    c.drawImage(img, -r, -r, r * 2, r * 2);
+  } else DRAW[hero](c, r);
+  c.restore();
+}
+
+/** Icono de una gema de Thanos (cuadrado de lado s). */
+export function drawGemIcon(c: Ctx, color: string, s: number): void {
+  c.save();
+  c.translate(s / 2, s / 2);
+  const r = s * 0.34;
+  c.beginPath();
+  c.moveTo(0, -r);
+  c.lineTo(r * 0.8, -r * 0.2);
+  c.lineTo(r * 0.5, r);
+  c.lineTo(-r * 0.5, r);
+  c.lineTo(-r * 0.8, -r * 0.2);
+  c.closePath();
+  c.fillStyle = color;
+  c.fill();
+  c.lineWidth = s * 0.05;
+  c.strokeStyle = 'rgba(255,255,255,0.85)';
+  c.stroke();
   c.restore();
 }
 
@@ -565,6 +650,146 @@ export function drawPowerIcon(c: Ctx, hero: HeroId, slot: 'q' | 'e', s: number):
       for (const x of [-0.5, 0.5]) {
         c.beginPath();
         c.ellipse(x * r, 0, r * 0.3, r * 0.7, 0, 0, Math.PI * 2);
+        c.stroke();
+      }
+      break;
+    case 'homer-q': // rosquilla glaseada
+      c.save();
+      c.fillStyle = '#E9A86B';
+      circle(c, 0, 0, r);
+      c.fill();
+      c.fillStyle = '#F06BB0';
+      circle(c, 0, 0, r * 0.82);
+      c.fill();
+      c.globalCompositeOperation = 'destination-out';
+      circle(c, 0, 0, r * 0.32);
+      c.fill();
+      c.restore();
+      break;
+    case 'homer-e': // charco de cerveza
+      c.save();
+      c.fillStyle = '#E3A72F';
+      c.beginPath();
+      c.ellipse(0, r * 0.3, r, r * 0.5, 0, 0, Math.PI * 2);
+      c.fill();
+      for (const [x, k] of [[-0.4, 0.2], [0.05, 0.26], [0.45, 0.18]] as const) {
+        c.fillStyle = '#fff';
+        circle(c, x * r, -r * 0.1, k * r);
+        c.fill();
+      }
+      c.restore();
+      break;
+    case 'cj-q': // cargador de tres balas
+      for (const x of [-0.55, 0, 0.55]) {
+        c.fillRect((x - 0.14) * r, -r * 0.35, r * 0.28, r);
+        c.beginPath();
+        c.arc(x * r, -r * 0.35, r * 0.14, Math.PI, 0);
+        c.fill();
+      }
+      break;
+    case 'cj-e': // jetpack: dos propulsores con llama
+      c.fillRect(-r * 0.6, -r * 0.8, r * 0.45, r * 1.1);
+      c.fillRect(r * 0.15, -r * 0.8, r * 0.45, r * 1.1);
+      c.save();
+      c.fillStyle = '#FF9A3C';
+      for (const x of [-0.375, 0.375]) {
+        c.beginPath();
+        c.moveTo((x - 0.2) * r, r * 0.35);
+        c.lineTo(x * r, r);
+        c.lineTo((x + 0.2) * r, r * 0.35);
+        c.fill();
+      }
+      c.restore();
+      break;
+    case 'baldi-q': // regla
+      c.save();
+      c.rotate(-Math.PI / 5);
+      c.fillStyle = '#E9D27A';
+      c.fillRect(-r, -r * 0.22, r * 2, r * 0.44);
+      c.strokeStyle = '#5a4a1a';
+      c.lineWidth = s * 0.03;
+      for (let i = -4; i <= 4; i++) {
+        c.beginPath();
+        c.moveTo(i * r * 0.22, -r * 0.22);
+        c.lineTo(i * r * 0.22, i % 2 ? -r * 0.05 : r * 0.05);
+        c.stroke();
+      }
+      c.restore();
+      break;
+    case 'baldi-e': // quiz: signos
+      c.font = `bold ${Math.round(r * 1.1)}px system-ui, sans-serif`;
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      c.fillText('+−', 0, -r * 0.2);
+      c.fillText('?', 0, r * 0.65);
+      break;
+    case 'ibai-q': // guante de boxeo
+      c.save();
+      c.fillStyle = '#E53935';
+      c.beginPath();
+      c.ellipse(r * 0.15, -r * 0.1, r * 0.75, r * 0.6, 0, 0, Math.PI * 2);
+      c.fill();
+      c.fillRect(-r * 0.75, -r * 0.05, r * 0.5, r * 0.75);
+      c.restore();
+      c.fillRect(-r, -r * 0.05, r * 0.25, r * 0.75);
+      break;
+    case 'ibai-e': // cuerpo gigante: disco que crece
+      circle(c, 0, 0, r * 0.35);
+      c.fill();
+      c.setLineDash([s * 0.05, s * 0.04]);
+      circle(c, 0, 0, r);
+      c.stroke();
+      c.setLineDash([]);
+      for (const a of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+        c.beginPath();
+        c.moveTo(Math.cos(a) * r * 0.5, Math.sin(a) * r * 0.5);
+        c.lineTo(Math.cos(a) * r * 0.8, Math.sin(a) * r * 0.8);
+        c.stroke();
+      }
+      break;
+    case 'verity-q': // enfado: cejas fruncidas
+      c.save();
+      c.strokeStyle = '#FF5A4A';
+      c.beginPath();
+      c.moveTo(-r * 0.8, -r * 0.5);
+      c.lineTo(-r * 0.15, -r * 0.15);
+      c.moveTo(r * 0.8, -r * 0.5);
+      c.lineTo(r * 0.15, -r * 0.15);
+      c.stroke();
+      c.restore();
+      c.beginPath();
+      c.arc(0, r * 0.65, r * 0.4, Math.PI * 1.1, Math.PI * 1.9);
+      c.stroke();
+      break;
+    case 'verity-e': // TNT con mecha
+      c.save();
+      c.fillStyle = '#D32F2F';
+      c.fillRect(-r * 0.7, -r * 0.45, r * 1.4, r * 1.2);
+      c.fillStyle = '#fff';
+      c.font = `bold ${Math.round(r * 0.5)}px system-ui, sans-serif`;
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      c.fillText('TNT', 0, r * 0.15);
+      c.restore();
+      c.beginPath();
+      c.moveTo(0, -r * 0.45);
+      c.quadraticCurveTo(r * 0.3, -r * 0.9, r * 0.6, -r * 0.8);
+      c.stroke();
+      break;
+    case 'thanos-q': // guantelete: cinco gemas
+    case 'thanos-e':
+      ['#3fd16b', '#f2d03b', '#e8423f', '#3f7cf2', '#a64ff2'].forEach((col, i) => {
+        c.save();
+        c.fillStyle = col;
+        circle(c, (i - 2) * r * 0.42, i === 2 ? -r * 0.3 : 0, r * 0.2);
+        c.fill();
+        c.restore();
+      });
+      if (key === 'thanos-e') {
+        c.beginPath();
+        c.moveTo(-r * 0.6, r * 0.6);
+        c.lineTo(r * 0.6, r * 0.6);
+        c.lineTo(r * 0.35, r * 0.35);
         c.stroke();
       }
       break;

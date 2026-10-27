@@ -505,6 +505,12 @@ export const HERO_CATALOG: Record<HeroId, { rarity: Rarity; role: HeroRole; star
 };
 
 export const RARITY_LABEL: Record<Rarity, string> = { common: 'Común', rare: 'Raro', epic: 'Épico', legendary: 'Legendario' };
+
+const RARITY_RANK: Record<Rarity, number> = { common: 0, rare: 1, epic: 2, legendary: 3 };
+/** Héroes agrupados por rareza (de común a legendario) para mostrarlos; dentro de cada rareza, el orden del catálogo. */
+export function byRarity(ids: readonly HeroId[]): HeroId[] {
+  return [...ids].sort((a, b) => RARITY_RANK[HERO_CATALOG[a].rarity] - RARITY_RANK[HERO_CATALOG[b].rarity]);
+}
 export const ROLE_LABEL: Record<HeroRole, string> = { ataque: 'Ataque', defensa: 'Defensa', control: 'Control', movilidad: 'Movilidad' };
 
 export interface PowerInfo {

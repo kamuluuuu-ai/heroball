@@ -1,12 +1,12 @@
 // Imprime la tabla de héroes del README a partir de shared/config.ts (fuente única).
 //   npx tsx scripts/hero-table.ts [super]
-import { HERO_CATALOG, PUBLIC_HERO_IDS, RARITY_LABEL, ROLE_LABEL, SECRET_IDS, heroInfo } from '../shared/config';
+import { HERO_CATALOG, PUBLIC_HERO_IDS, byRarity, RARITY_LABEL, ROLE_LABEL, SECRET_IDS, heroInfo } from '../shared/config';
 
 const mode = process.argv[2] === 'super' ? 'super' : 'heroes';
 const cd = (t: number) => `${(t / 60).toLocaleString('es', { maximumFractionDigits: 1 })} s`;
 console.log('| Héroe | Rareza · rol | Q | E |');
 console.log('|---|---|---|---|');
-for (const id of PUBLIC_HERO_IDS) {
+for (const id of byRarity(PUBLIC_HERO_IDS)) {
   const h = heroInfo(id, mode);
   const c = HERO_CATALOG[id];
   const tag = `${RARITY_LABEL[c.rarity]}${c.starter ? ' (inicial)' : ''} · ${ROLE_LABEL[c.role]}`;

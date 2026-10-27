@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { GEM_COLOR, GEM_IDS, HEROES, HERO_CATALOG, PUBLIC_HERO_IDS, RARITY_LABEL, SECRET_IDS, heroInfo, type HeroId, type Rarity } from '../../../shared/config';
+import { GEM_COLOR, GEM_IDS, HEROES, byRarity, HERO_CATALOG, PUBLIC_HERO_IDS, RARITY_LABEL, SECRET_IDS, heroInfo, type HeroId, type Rarity } from '../../../shared/config';
 import type { GameMode } from '../../../shared/types';
 import { setAudio } from '../game/audio';
 import { drawGemIcon, drawHero, drawPowerIcon, onPortraitLoad, preloadPortraits } from '../game/heroArt';
@@ -102,7 +102,7 @@ export function HeroPicker({ value, onChange, team, note, mode = 'heroes', locke
   /** Personajes secretos que esta cuenta tiene (sólo esos se muestran). */
   secrets?: HeroId[];
 }) {
-  const ids = [...PUBLIC_HERO_IDS, ...SECRET_IDS.filter((h) => secrets.includes(h))];
+  const ids = byRarity([...PUBLIC_HERO_IDS, ...SECRET_IDS.filter((h) => secrets.includes(h))]);
   return (
     <div className="hero-picker">
       <div className="hero-row" role="radiogroup" aria-label="Héroe">

@@ -1,7 +1,7 @@
 // Pantallas de cuenta y economía: acceso, colección, cofres, perfil y
 // administración. Todo saldo, héroe o rol que se muestra viene del servidor.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { HEROES, HERO_CATALOG, PUBLIC_HERO_IDS, RARITY_LABEL, ROLE_LABEL, SECRET_IDS, isSecret, type HeroId, type HeroRole, type Rarity } from '../../../shared/config';
+import { HEROES, HERO_CATALOG, byRarity, PUBLIC_HERO_IDS, RARITY_LABEL, ROLE_LABEL, SECRET_IDS, isSecret, type HeroId, type HeroRole, type Rarity } from '../../../shared/config';
 import { ECONOMY, ODDS_SCALE, RARITIES, heroesOfRarity, type ChestType } from '../../../shared/economy';
 import { account, UnknownOutcome, newKey, type LedgerRow, type Notice, type Odds, type Opening, type OpenResult } from '../account';
 import { HeroBadge, PowerList, RARITY_ICON, RarityTag } from './common';
@@ -242,7 +242,7 @@ export function Collection({ selected, onEquip, onTry, onChests }: {
   const signed = a.status === 'signed';
   const owned = signed ? a.owned() : new Set<HeroId>(PUBLIC_HERO_IDS.filter((h) => HERO_CATALOG[h].starter));
   // los personajes secretos sólo aparecen en la colección de quien los tiene
-  const visible = [...PUBLIC_HERO_IDS, ...SECRET_IDS.filter((h) => owned.has(h))];
+  const visible = byRarity([...PUBLIC_HERO_IDS, ...SECRET_IDS.filter((h) => owned.has(h))]);
   const ownedPublic = PUBLIC_HERO_IDS.filter((h) => owned.has(h)).length;
   const [rarity, setRarity] = useState<Rarity | 'all'>('all');
   const [role, setRole] = useState<HeroRole | 'all'>('all');

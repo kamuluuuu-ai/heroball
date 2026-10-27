@@ -12,7 +12,11 @@ export const MIGRATIONS_DIR = resolve(fileURLToPath(new URL('.', import.meta.url
 export function createPool(url: string): Db {
   // BIGINT como número: los saldos están acotados muy por debajo de 2^53
   pg.types.setTypeParser(20, (v) => Number(v));
-  return new pg.Pool({ connectionString: url, max: 10 });
+  const pool = new pg.Pool({ connectionString: url, max: 10 });
+  // una conexión inactiva que cae (reinicio de la base, red) no debe tumbar el proceso;
+  // el pool la descarta y abre otra en la próxima consulta
+  pool.on('error', (e) => console.warn('PostgreSQL: conexión inactiva perdida:', e.message));
+  return pool;
 }
 
 /** Ejecuta `fn` dentro de una transacción; revierte ante cualquier error. */

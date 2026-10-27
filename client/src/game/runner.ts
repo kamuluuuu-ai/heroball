@@ -45,7 +45,8 @@ export class GameRunner {
     this.session.update(Math.max(0, dt), this.input.bits());
     const view = this.session.view();
     this.lastView = view;
-    this.renderer.draw(view, this.session.localId, this.opts());
+    const o = this.opts();
+    this.renderer.draw(view, this.session.localId, o, o.debug ? this.session.debugLayers() : undefined);
     this.onFrame(view);
   }
 

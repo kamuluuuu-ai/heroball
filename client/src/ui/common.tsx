@@ -98,6 +98,9 @@ export function SettingsPanel({ prefs, setPrefs }: { prefs: Prefs; setPrefs: (p:
           <option value="off">Nunca</option>
         </select>
       </label>
+      <label className="row" title="Muestra radios físicos, alcance de patada, separación entre bordes y posiciones de red">
+        <input type="checkbox" checked={prefs.debug} onChange={(e) => setPrefs({ ...prefs, debug: e.target.checked })} /> Depuración de contacto
+      </label>
       <AdminKeyField prefs={prefs} setPrefs={setPrefs} />
     </div>
   );

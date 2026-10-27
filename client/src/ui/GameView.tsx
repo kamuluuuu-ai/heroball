@@ -50,7 +50,7 @@ export function GameView(p: Props) {
       canvasRef.current!,
       p.session,
       input,
-      () => ({ names: propsRef.current.names, zoom: propsRef.current.prefs.zoom, showNames: propsRef.current.prefs.showNames }),
+      () => ({ names: propsRef.current.names, zoom: propsRef.current.prefs.zoom, showNames: propsRef.current.prefs.showNames, debug: propsRef.current.prefs.debug }),
       (view) => hud.update(view, p.session.localId),
     );
     runnerRef.current = runner;

@@ -1,6 +1,6 @@
 // Renderizado Canvas 2D. Coordenadas físicas fijas; la cámara sólo escala y
 // traslada, así la cancha nunca se deforma.
-import { COLORS, STADIUM } from '../../../shared/config';
+import { COLORS, KICK, STADIUM } from '../../../shared/config';
 import { stadium, type Seg } from '../../../shared/physics';
 import type { GameEvent, GameState, PlayerState, Team } from '../../../shared/types';
 import { IN } from '../../../shared/types';
@@ -29,6 +29,13 @@ export interface RenderOptions {
   /** 1 = cancha completa; >1 acerca y sigue al jugador. */
   zoom: number;
   showNames: boolean;
+  /** Capa de depuración de contacto. */
+  debug?: boolean;
+}
+
+export interface DebugLayers {
+  pred: GameState | null;
+  auth: GameState | null;
 }
 
 const TEAM_COLOR: Record<Team, string> = { red: COLORS.red, blue: COLORS.blue };
@@ -113,7 +120,7 @@ export class Renderer {
     return dpr;
   }
 
-  draw(s: GameState | null, localId: string, o: RenderOptions): void {
+  draw(s: GameState | null, localId: string, o: RenderOptions, dbg?: DebugLayers): void {
     const c = this.c;
     this.resize();
     const W = this.canvas.width;
@@ -200,10 +207,83 @@ export class Renderer {
     this.drawPosts(c);
     this.drawBall(c, s);
     this.drawFx(c);
+    if (dbg) this.drawDebug(c, s, localId, dbg, scale);
 
     // textos de pantalla
     c.setTransform(1, 0, 0, 1, 0, 0);
     this.drawBanner(c, W, H, s);
+    if (dbg) this.drawDebugLegend(c, s, localId, dbg);
+  }
+
+  /**
+   * Depuración de contacto: radios físicos (blanco fino), centros, alcance de
+   * patada del jugador local (amarillo), posición física predicha sin suavizar
+   * (magenta) y última posición autoritativa del servidor (naranja).
+   */
+  private drawDebug(c: CanvasRenderingContext2D, s: GameState, localId: string, dbg: DebugLayers, scale: number): void {
+    const px = 1 / scale;
+    const ring = (x: number, y: number, r: number, color: string, dash: number[] = []) => {
+      c.beginPath();
+      c.arc(x, y, r, 0, Math.PI * 2);
+      c.setLineDash(dash.map((d) => d * px));
+      c.strokeStyle = color;
+      c.lineWidth = px;
+      c.stroke();
+      c.setLineDash([]);
+    };
+    const cross = (x: number, y: number, color: string) => {
+      c.strokeStyle = color;
+      c.lineWidth = px;
+      c.beginPath();
+      c.moveTo(x - 3 * px, y);
+      c.lineTo(x + 3 * px, y);
+      c.moveTo(x, y - 3 * px);
+      c.lineTo(x, y + 3 * px);
+      c.stroke();
+    };
+    const discs = (g: GameState) => [g.ball, ...g.players.map((p) => p.d)];
+    if (dbg.auth) for (const d of discs(dbg.auth)) ring(d.x, d.y, d.r, 'rgba(255,150,40,0.95)', [4, 3]);
+    if (dbg.pred) for (const d of discs(dbg.pred)) ring(d.x, d.y, d.r, 'rgba(255,60,220,0.95)');
+    for (const d of discs(s)) {
+      ring(d.x, d.y, d.r, '#fff');
+      cross(d.x, d.y, '#fff');
+    }
+    const me = s.players.find((p) => p.id === localId);
+    if (me) {
+      // la patada vale si el borde de la pelota entra en este anillo
+      ring(me.d.x, me.d.y, me.d.r + KICK.range, 'rgba(255,230,60,0.95)', [2, 2]);
+      const b = s.ball;
+      const dist = Math.hypot(b.x - me.d.x, b.y - me.d.y) || 1;
+      const nx = (b.x - me.d.x) / dist;
+      const ny = (b.y - me.d.y) / dist;
+      c.beginPath();
+      c.moveTo(me.d.x + nx * me.d.r, me.d.y + ny * me.d.r);
+      c.lineTo(b.x - nx * b.r, b.y - ny * b.r);
+      c.strokeStyle = 'rgba(255,230,60,0.95)';
+      c.lineWidth = px;
+      c.stroke();
+    }
+  }
+
+  private drawDebugLegend(c: CanvasRenderingContext2D, s: GameState, localId: string, dbg: DebugLayers): void {
+    const lines: string[] = ['DEPURACIÓN · blanco: dibujado · amarillo: alcance de patada'];
+    if (dbg.pred) lines.push('magenta: física predicha · naranja: servidor');
+    const phys = dbg.pred ?? s;
+    const me = phys.players.find((p) => p.id === localId);
+    if (me) {
+      const gap = Math.hypot(phys.ball.x - me.d.x, phys.ball.y - me.d.y) - me.d.r - phys.ball.r;
+      lines.push(`borde jugador–pelota: ${gap.toFixed(1)} px · patada ${gap < KICK.range ? 'EN RANGO' : 'fuera'} (< ${KICK.range} px)`);
+      const auth = dbg.auth?.players.find((p) => p.id === localId);
+      if (auth) lines.push(`desfase predicho–servidor: ${Math.hypot(auth.d.x - me.d.x, auth.d.y - me.d.y).toFixed(1)} px`);
+    }
+    c.font = '600 11px ui-monospace, Consolas, monospace';
+    c.textAlign = 'left';
+    c.textBaseline = 'top';
+    const w = Math.max(...lines.map((l) => c.measureText(l).width)) + 12;
+    c.fillStyle = 'rgba(0,0,0,0.65)';
+    c.fillRect(8, 40, w, lines.length * 15 + 8);
+    c.fillStyle = '#fff';
+    lines.forEach((l, i) => c.fillText(l, 14, 44 + i * 15));
   }
 
   private drawField(c: CanvasRenderingContext2D): void {

@@ -6,6 +6,9 @@ import { cloneState, createGame, requestHero, resetKickoff, setInput, step } fro
 import type { Disc } from '../../../shared/physics';
 import type { GameEvent, GameMode, GameState, Team } from '../../../shared/types';
 import type { NetClient, SnapshotSink } from './net';
+/** Tolerancia del acumulador: evita que el error de coma flotante postergue un tick a otro fotograma. */
+const ACC_EPS = 1e-6;
+
 
 export interface Session {
   localId: string;
@@ -13,6 +16,8 @@ export interface Session {
   update(dtMs: number, bits: number): void;
   /** Estado a dibujar (interpolado). */
   view(): GameState | null;
+  /** Capas de depuración: estado físico predicho (sin interpolar ni suavizar) y último estado autoritativo. */
+  debugLayers(): { pred: GameState | null; auth: GameState | null };
   onEvents: (ev: GameEvent[]) => void;
   dispose(): void;
 }
@@ -124,7 +129,7 @@ export class LocalSession implements Session {
 
   update(dtMs: number, bits: number): void {
     this.acc += Math.min(dtMs, 250);
-    while (this.acc >= TICK_MS) {
+    while (this.acc >= TICK_MS - ACC_EPS) {
       this.acc -= TICK_MS;
       this.prev = { ...this.state, ball: { ...this.state.ball }, players: this.state.players.map((p) => ({ ...p, d: { ...p.d } })), projectiles: this.state.projectiles.map((p) => ({ ...p })) };
       const s = this.state;
@@ -139,6 +144,11 @@ export class LocalSession implements Session {
 
   view(): GameState {
     return blend(this.prev, this.state, this.acc / TICK_MS);
+  }
+
+  debugLayers() {
+    // sin red: el estado local es a la vez el físico y el autoritativo
+    return { pred: this.state, auth: null };
   }
 
   dispose(): void {}
@@ -263,7 +273,7 @@ export class NetSession implements Session, SnapshotSink {
       return;
     }
     this.acc += dt;
-    while (this.acc >= TICK_MS) {
+    while (this.acc >= TICK_MS - ACC_EPS) {
       this.acc -= TICK_MS;
       if (!this.inGame()) continue;
       this.seq++;
@@ -281,10 +291,37 @@ export class NetSession implements Session, SnapshotSink {
     }
   }
 
+  /**
+   * Limita el suavizado de cada disco a la mitad de su separación física con
+   * el disco más cercano. Sin esto, una corrección de la pelota (por ejemplo,
+   * porque un rival la tocó) la dibujaba hasta ~40 px lejos de donde realmente
+   * choca: en contacto se veía un hueco o un solapamiento falso. Lejos de todo,
+   * las correcciones se siguen repartiendo en varios fotogramas.
+   */
+  private clampOffsets(s: GameState): void {
+    const discs: [string, Disc][] = [['ball', s.ball], ...s.players.map((p) => [p.id, p.d] as [string, Disc])];
+    for (const [id, d] of discs) {
+      const o = this.off.get(id);
+      if (!o) continue;
+      let near = Infinity;
+      for (const [id2, e] of discs) {
+        if (id2 !== id) near = Math.min(near, Math.hypot(d.x - e.x, d.y - e.y) - d.r - e.r);
+      }
+      const max = Math.max(0, near) / 2;
+      const len = Math.hypot(o.x, o.y);
+      if (len > max) {
+        const k = len > 0 ? max / len : 0;
+        o.x *= k;
+        o.y *= k;
+      }
+    }
+  }
+
   /** Vista del mundo predicho, interpolada entre ticks y con correcciones suavizadas. */
   private predictedView(): GameState {
     const s = this.predicted!;
     const t = this.acc / TICK_MS;
+    this.clampOffsets(s);
     const place = (id: string, d: { x: number; y: number }) => {
       const a = this.predPrev.get(id);
       const o = this.off.get(id);
@@ -305,6 +342,10 @@ export class NetSession implements Session, SnapshotSink {
       ball: place('ball', s.ball),
       players: s.players.map((p) => ({ ...p, d: place(p.id, p.d) })),
     };
+  }
+
+  debugLayers() {
+    return { pred: this.inGame() ? this.predicted : null, auth: this.snaps.at(-1)?.state ?? null };
   }
 
   view(): GameState | null {

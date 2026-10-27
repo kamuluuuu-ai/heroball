@@ -107,12 +107,24 @@ export function collideDiscs(a: Disc, b: Disc): boolean {
   const dy = a.y - b.y;
   const rr = a.r + b.r;
   const d2 = dx * dx + dy * dy;
-  if (d2 <= 0 || d2 > rr * rr) return false;
+  if (d2 > rr * rr) return false;
   const im = a.invMass + b.invMass;
   if (im === 0) return false;
   const d = Math.sqrt(d2);
-  const nx = dx / d;
-  const ny = dy / d;
+  let nx: number;
+  let ny: number;
+  if (d > 1e-9) {
+    nx = dx / d;
+    ny = dy / d;
+  } else {
+    // centros coincidentes: separar en sentido contrario a la velocidad
+    // relativa (o en x si están quietos). Determinista en cliente y servidor.
+    const rvx = a.vx - b.vx;
+    const rvy = a.vy - b.vy;
+    const rv = Math.hypot(rvx, rvy);
+    nx = rv > 1e-9 ? -rvx / rv : 1;
+    ny = rv > 1e-9 ? -rvy / rv : 0;
+  }
   const ka = a.invMass / im;
   const pen = rr - d;
   a.x += nx * pen * ka;
@@ -145,10 +157,25 @@ export function collideSeg(d: Disc, s: Seg): boolean {
   const dx = d.x - cx;
   const dy = d.y - cy;
   const d2 = dx * dx + dy * dy;
-  if (d2 >= d.r * d.r || d2 === 0) return false;
+  if (d2 >= d.r * d.r) return false;
   const dist = Math.sqrt(d2);
-  const nx = dx / dist;
-  const ny = dy / dist;
+  let nx: number;
+  let ny: number;
+  if (dist > 1e-9) {
+    nx = dx / dist;
+    ny = dy / dist;
+  } else {
+    // centro exactamente sobre el segmento: salir por la normal opuesta a la velocidad
+    const ex = s.bx - s.ax;
+    const ey = s.by - s.ay;
+    const el = Math.hypot(ex, ey) || 1;
+    nx = -ey / el;
+    ny = ex / el;
+    if (nx * d.vx + ny * d.vy > 0) {
+      nx = -nx;
+      ny = -ny;
+    }
+  }
   const pen = d.r - dist;
   d.x += nx * pen;
   d.y += ny * pen;
@@ -209,6 +236,8 @@ export function lineBlocked(x1: number, y1: number, x2: number, y2: number): boo
   return false;
 }
 
+const SOLVER_PASSES = 3;
+
 export interface PhysicsWorld {
   ball: Disc;
   players: Disc[];
@@ -230,15 +259,19 @@ export function stepWorld(w: PhysicsWorld): number {
       d.x += d.vx / n;
       d.y += d.vy / n;
     }
-    for (let i = 0; i < all.length; i++) {
-      for (let j = i + 1; j < all.length; j++) collideDiscs(all[i], all[j]);
-    }
-    for (const p of stadium.posts) collideDiscs(w.ball, p);
-    for (const s2 of stadium.ballWalls) collideSeg(w.ball, s2);
-    for (const pl of w.players) {
-      for (const p of stadium.posts) collideDiscs(pl, p);
-      for (const b of w.playerBarriers) collideSeg(pl, b);
-      collideBounds(pl);
+    // tres pasadas del resolvedor: con la pelota apretada entre un jugador y
+    // una pared (o entre dos jugadores) una sola pasada dejaba 0,3-0,5 px de solapamiento
+    for (let it = 0; it < SOLVER_PASSES; it++) {
+      for (let i = 0; i < all.length; i++) {
+        for (let j = i + 1; j < all.length; j++) collideDiscs(all[i], all[j]);
+      }
+      for (const p of stadium.posts) collideDiscs(w.ball, p);
+      for (const s2 of stadium.ballWalls) collideSeg(w.ball, s2);
+      for (const pl of w.players) {
+        for (const p of stadium.posts) collideDiscs(pl, p);
+        for (const b of w.playerBarriers) collideSeg(pl, b);
+        collideBounds(pl);
+      }
     }
   }
   for (const d of all) {

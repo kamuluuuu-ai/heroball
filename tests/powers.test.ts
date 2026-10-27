@@ -301,10 +301,11 @@ describe('Batman', () => {
     place(s, 'a', 330, 64 + 40);
     s.ball.x = 300; s.ball.y = 64 - 20;
     tick(s, { a: IN.E });
-    for (let i = 0; i < 10; i++) tick(s, { a: 0 });
-    s.ball.x = 400; s.ball.y = 20; // la pelota queda detrás del poste
-    s.ball.vx = 0; s.ball.vy = 0;
-    tick(s, { a: 0 });
+    for (let i = 0; i < 30 && !s.tethers.length; i++) tick(s, { a: 0 });
+    expect(s.tethers.length).toBe(1);
+    // el poste (370, 64) queda justo entre Batman y la pelota, dentro del arco
+    place(s, 'a', 340, 94);
+    s.ball.x = 392; s.ball.y = 40; s.ball.vx = 0; s.ball.vy = 0;
     tick(s, { a: 0 });
     expect(s.tethers.length).toBe(0);
   });

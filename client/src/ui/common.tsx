@@ -1,8 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { HEROES, HERO_IDS, heroInfo, type HeroId } from '../../../shared/config';
 import type { GameMode } from '../../../shared/types';
 import { setAudio } from '../game/audio';
 import { drawHero, drawPowerIcon } from '../game/heroArt';
+import { net } from '../game/net';
 import type { Prefs } from '../prefs';
 
 export function HeroBadge({ hero, size = 28, team }: { hero: HeroId; size?: number; team?: 'red' | 'blue' | 'spec' }) {
@@ -97,7 +98,38 @@ export function SettingsPanel({ prefs, setPrefs }: { prefs: Prefs; setPrefs: (p:
           <option value="off">Nunca</option>
         </select>
       </label>
+      <AdminKeyField prefs={prefs} setPrefs={setPrefs} />
     </div>
+  );
+}
+
+/** Clave privada de administrador: se guarda sólo en este navegador y nunca se envía (sólo firmas). */
+function AdminKeyField({ prefs, setPrefs }: { prefs: Prefs; setPrefs: (p: Prefs) => void }) {
+  const [, force] = useState(0);
+  useEffect(() => net.subscribe(() => force((n) => n + 1)), []);
+  const status = !prefs.adminKey
+    ? null
+    : net.adminError
+      ? <span className="error-text">{net.adminError}</span>
+      : net.isAdmin
+        ? <span className="ok-text">Verificado como administrador.</span>
+        : <span className="muted">Se verifica al entrar a una sala.</span>;
+  return (
+    <details className="admin-key" open={!!prefs.adminKey}>
+      <summary>Administración</summary>
+      <label className="row">
+        Clave
+        <input
+          type="password"
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="Clave privada de administrador"
+          value={prefs.adminKey}
+          onChange={(e) => setPrefs({ ...prefs, adminKey: e.target.value.trim() })}
+        />
+      </label>
+      {status && <div className="small">{status}</div>}
+    </details>
   );
 }
 

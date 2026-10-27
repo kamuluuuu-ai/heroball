@@ -2,3 +2,4 @@
 dist
 dist-pages
 node_modules
+*clave-admin*

@@ -10,10 +10,12 @@ export interface Prefs {
   zoom: number;
   showNames: boolean;
   touch: 'auto' | 'on' | 'off';
+  /** Clave privada de administrador (sólo en este navegador). */
+  adminKey: string;
 }
 
 const KEY = 'heroball.prefs.v1';
-const DEFAULTS: Prefs = { nick: '', hero: 'spider', sound: true, volume: 0.5, zoom: 1, showNames: true, touch: 'auto' };
+const DEFAULTS: Prefs = { nick: '', hero: 'spider', sound: true, volume: 0.5, zoom: 1, showNames: true, touch: 'auto', adminKey: '' };
 
 export function loadPrefs(): Prefs {
   try {

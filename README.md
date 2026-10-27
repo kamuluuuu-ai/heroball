@@ -82,6 +82,28 @@ En la sala: equipos Rojo / Espectadores / Azul, chat, invitación. El anfitrión
 detiene, cambia límites, mueve jugadores, agrega bots y expulsa. Si el anfitrión se va, pasa al humano más antiguo.
 Una sala sin humanos se elimina.
 
+## Administrador
+
+Hay un único administrador global, identificado con una **clave firmada** (ECDSA P-256 con WebCrypto), no con
+una contraseña: como el código es público, una contraseña escondida en él no protegería nada.
+
+- El código sólo contiene la **clave pública** (`shared/admin.ts`). La clave privada vive únicamente en el
+  navegador del administrador (*Ajustes → Administración*, guardada en `localStorage`) y nunca se envía.
+- En cada conexión, quien aloja la sala (servidor Node o navegador anfitrión) manda un desafío aleatorio; el
+  cliente lo firma y el anfitrión verifica la firma. La firma queda atada a ese desafío y a esa conexión, así que
+  copiarla no sirve. Hay como máximo 3 intentos por conexión.
+- Un administrador verificado (marca **ADMIN** en la sala) tiene los permisos del anfitrión en cualquier sala:
+  iniciar, pausar, revancha, detener, configurar, mover jugadores, agregar bots y expulsar (también al anfitrión).
+  Además entra aunque la sala esté llena, puede pasar el rol de anfitrión (★) y nadie puede expulsarlo.
+- **Panel de administración** dentro de la sala: tiempo abierta, estado del partido, marcador, reloj, tick,
+  tamaño de cada snapshot y, por jugador, equipo, ping, entradas en cola, tiempo sin recibir entradas y última
+  entrada confirmada. Se actualiza dos veces por segundo y sólo lo reciben los administradores.
+
+Límites: en la versión web no hay lista pública de salas, así que el administrador también entra con el enlace o
+el código. El anfitrión corre el código en su navegador: alguien que modifique su copia del juego podría ignorar
+la verificación en *su propia* sala, pero nadie puede hacerse pasar por administrador en salas ajenas sin la clave
+privada. Para cambiar la clave: `node scripts/admin-keygen.mjs`, pegar la pública en `shared/admin.ts` y publicar.
+
 ## Héroes y poderes
 
 Todos comparten la física base; sólo cambian los poderes. R = radio de un jugador (15).
@@ -167,10 +189,10 @@ pelota 15), subpasos de como máximo 4 px por paso, pausa de gol 2,5 s, todos lo
 
 ## Pruebas
 
-`npm test` ejecuta 64 pruebas: movimiento/frenado, diagonales, patada dentro/fuera de alcance y mantener
+`npm test` ejecuta 71 pruebas: movimiento/frenado, diagonales, patada dentro/fuera de alcance y mantener
 apretado, conservación de momento, tiros a velocidad máxima contra pared/poste/red, gol contado una vez, saque y
 barreras, victoria por goles y por tiempo, gol de oro, cada poder y su cooldown, el gancho (llega a la pelota, atraviesa jugadores, falla fuera de alcance, se corta tras un poste), cada poder del modo Súper (telaraña de cancha completa, arrastre de rivales, triple batarang, súper gancho, terremoto, disparo de acero), limpieza de efectos, cambio de
-héroe, validación de mensajes, permisos, transferencia de anfitrión, aislamiento entre salas, confirmación de
+héroe, validación de mensajes, permisos, administrador con clave firmada (firma atada al desafío y a la conexión, clave equivocada, límite de intentos, permisos, estado sólo para admins), transferencia de anfitrión, aislamiento entre salas, confirmación de
 secuencias sin duplicar poderes, un partido 3v3 completo con bots en Héroes y en Súper sin valores inválidos, autoapuntado (pelota quieta, en movimiento, fuera de cono, detrás de poste) y una prueba cliente-servidor con ~200 ms de latencia que verifica que jugador y pelota nunca se dibujan encimados.
 
 ## Capturas

@@ -1,5 +1,6 @@
 // Manejo de mensajes de un cliente conectado. Sin dependencias de Node: lo usa
 // el servidor WebSocket y también el navegador anfitrión en modo WebRTC.
+import { makeNonce, verifyAdmin } from '../shared/admin';
 import { MAX_NICK, PROTOCOL_VERSION, cleanText, parseClientMessage } from '../shared/protocol';
 import { RateLimiter } from './rate';
 import type { Client, Lobby } from './room';
@@ -8,6 +9,8 @@ export interface HandlerOptions {
   /** Sólo para el modo anfitrión en navegador: una única sala con id fijo. */
   singleRoomId?: string;
   onAbuse?: () => void;
+  /** Sólo para pruebas: otra clave pública de administrador. */
+  adminPublicKey?: JsonWebKey;
 }
 
 export function createHandler(lobby: Lobby, client: Client, opts: HandlerOptions = {}) {
@@ -16,6 +19,9 @@ export function createHandler(lobby: Lobby, client: Client, opts: HandlerOptions
   const chatRate = new RateLimiter(1.5, 4);
   const ctrlRate = new RateLimiter(8, 16);
   let strikes = 0;
+  // desafío de administrador, distinto en cada conexión
+  const nonce = makeNonce();
+  let adminTries = 0;
   const reject = (msg?: string) => {
     if (msg) client.send({ t: 'error', msg });
     if (++strikes > 200) opts.onAbuse?.();
@@ -44,7 +50,19 @@ export function createHandler(lobby: Lobby, client: Client, opts: HandlerOptions
       const nick = cleanText(m.nick, MAX_NICK);
       if (!nick) return reject('Apodo inválido.');
       client.nick = nick;
-      client.send({ t: 'welcome', id: client.id, v: PROTOCOL_VERSION });
+      client.send({ t: 'welcome', id: client.id, v: PROTOCOL_VERSION, nonce });
+      return;
+    }
+    if (m.t === 'admin') {
+      if (client.admin) return;
+      if (++adminTries > 3) return reject('Demasiados intentos de administrador.');
+      void verifyAdmin(m.sig, nonce, client.id, opts.adminPublicKey).then((ok) => {
+        if (ok) {
+          client.admin = true;
+          client.room?.sendRoom();
+        }
+        client.send({ t: 'admin', ok });
+      });
       return;
     }
     if (!client.nick) return reject('Primero elegí un apodo.');
@@ -88,6 +106,7 @@ export function createHandler(lobby: Lobby, client: Client, opts: HandlerOptions
       case 'restart': err = room.restart(client.id); break;
       case 'addbot': err = room.addBot(client.id, m.side); break;
       case 'kick': err = room.kickMember(client.id, m.target); break;
+      case 'makehost': err = room.makeHost(client.id, m.target); break;
     }
     if (err) reject(err);
   };

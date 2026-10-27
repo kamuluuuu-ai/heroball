@@ -3,7 +3,7 @@ import { HeroId, SNAPSHOT_EVERY_TICKS } from '../shared/config';
 import { BotBrain, botInput, makeBrain } from '../shared/bot';
 import { addPlayer, createGame, removePlayer, requestHero, setInput, step } from '../shared/game';
 import {
-  DEFAULT_SETTINGS, MAX_CHAT, MAX_ROOM_NAME, RoomInfo, RoomSettings, RoomSummary, ServerMsg, cleanText,
+  AdminState, DEFAULT_SETTINGS, MAX_CHAT, MAX_ROOM_NAME, RoomInfo, RoomSettings, RoomSummary, ServerMsg, cleanText,
 } from '../shared/protocol';
 import { GameEvent, GameState, IN, Side, Team } from '../shared/types';
 
@@ -12,6 +12,8 @@ export interface Client {
   nick: string;
   room: Room | null;
   ping: number;
+  /** Administrador verificado con clave firmada (ver shared/admin.ts). */
+  admin?: boolean;
   send(msg: ServerMsg | string): void;
 }
 
@@ -44,6 +46,9 @@ export class Room {
   members = new Map<string, Member>();
   hostId = '';
   game: GameState | null = null;
+  private readonly createdAt = Date.now();
+  private ticks = 0;
+  private snapBytes = 0;
   private events: GameEvent[] = [];
   private onEmpty: (r: Room) => void;
 
@@ -70,7 +75,7 @@ export class Room {
       id: this.id, name: this.name, settings: this.settings, hostId: this.hostId, playing: this.game !== null,
       members: [...this.members.values()].map((m) => ({
         id: m.id, nick: m.nick, side: m.side, hero: m.hero, bot: m.bot,
-        host: m.id === this.hostId, ping: m.client?.ping ?? 0,
+        host: m.id === this.hostId, admin: !!m.client?.admin, ping: m.client?.ping ?? 0,
       })),
     };
   }
@@ -89,7 +94,8 @@ export class Room {
   }
 
   join(c: Client): string | null {
-    if (this.members.size >= this.settings.maxPlayers) return 'La sala está llena.';
+    // un administrador entra aunque la sala esté llena
+    if (this.members.size >= this.settings.maxPlayers && !c.admin) return 'La sala está llena.';
     const m: Member = {
       id: c.id, nick: c.nick, side: 'spec', hero: 'spider', bot: false, joinedAt: ++joinCounter,
       client: c, queue: [], lastBits: 0, ack: 0, starved: 0,
@@ -129,6 +135,15 @@ export class Room {
     return this.hostId === id;
   }
 
+  isAdmin(id: string): boolean {
+    return !!this.members.get(id)?.client?.admin;
+  }
+
+  /** Permisos de anfitrión: el anfitrión o un administrador verificado. */
+  can(id: string): boolean {
+    return this.isHost(id) || this.isAdmin(id);
+  }
+
   teamCount(side: Team): number {
     let n = 0;
     for (const m of this.members.values()) if (m.side === side) n++;
@@ -144,7 +159,7 @@ export class Room {
 
   /** Cambiar de equipo. Uno mismo puede elegir; mover a otros es del anfitrión. */
   setSide(actor: string, side: Side, target = actor): string | null {
-    if (target !== actor && !this.isHost(actor)) return 'Sólo el anfitrión puede mover a otros.';
+    if (target !== actor && !this.can(actor)) return 'Sólo el anfitrión puede mover a otros.';
     const m = this.members.get(target);
     if (!m) return 'Jugador inexistente.';
     if (m.side === side) return null;
@@ -170,7 +185,7 @@ export class Room {
   }
 
   setSettings(actor: string, s: Partial<RoomSettings>): string | null {
-    if (!this.isHost(actor)) return 'Sólo el anfitrión puede cambiar la configuración.';
+    if (!this.can(actor)) return 'Sólo el anfitrión puede cambiar la configuración.';
     if (this.game) return 'Detené el partido para cambiar la configuración.';
     if (s.maxPlayers !== undefined && s.maxPlayers < this.members.size) return 'Hay más jugadores que esa capacidad.';
     this.settings = { ...this.settings, ...s };
@@ -184,7 +199,7 @@ export class Room {
   }
 
   start(actor: string): string | null {
-    if (!this.isHost(actor)) return 'Sólo el anfitrión puede iniciar.';
+    if (!this.can(actor)) return 'Sólo el anfitrión puede iniciar.';
     if (this.game) return null;
     const players = [...this.members.values()]
       .filter((m) => m.side !== 'spec')
@@ -204,7 +219,7 @@ export class Room {
   }
 
   stop(actor: string | null): string | null {
-    if (actor !== null && !this.isHost(actor)) return 'Sólo el anfitrión puede detener.';
+    if (actor !== null && !this.can(actor)) return 'Sólo el anfitrión puede detener.';
     if (!this.game) return null;
     this.game = null;
     this.broadcast({ t: 'nogame' });
@@ -213,7 +228,7 @@ export class Room {
   }
 
   pause(actor: string): string | null {
-    if (!this.isHost(actor)) return 'Sólo el anfitrión puede pausar.';
+    if (!this.can(actor)) return 'Sólo el anfitrión puede pausar.';
     if (!this.game || this.game.phase === 'ended') return null;
     this.game.paused = !this.game.paused;
     this.sys(this.game.paused ? 'Partido en pausa.' : 'Partido reanudado.');
@@ -221,13 +236,13 @@ export class Room {
   }
 
   restart(actor: string): string | null {
-    if (!this.isHost(actor)) return 'Sólo el anfitrión puede reiniciar.';
+    if (!this.can(actor)) return 'Sólo el anfitrión puede reiniciar.';
     this.game = null;
     return this.start(actor);
   }
 
   addBot(actor: string, side: Team): string | null {
-    if (!this.isHost(actor)) return 'Sólo el anfitrión puede agregar bots.';
+    if (!this.can(actor)) return 'Sólo el anfitrión puede agregar bots.';
     if (this.members.size >= this.settings.maxPlayers) return 'La sala está llena.';
     if (this.teamCount(side) >= this.settings.teamSize) return 'Ese equipo está completo.';
     const id = 'b' + (++botCounter).toString(36);
@@ -244,15 +259,51 @@ export class Room {
   }
 
   kickMember(actor: string, target: string): string | null {
-    if (!this.isHost(actor)) return 'Sólo el anfitrión puede expulsar.';
+    if (!this.can(actor)) return 'Sólo el anfitrión puede expulsar.';
     if (target === actor) return null;
     const m = this.members.get(target);
     if (!m) return null;
+    if (m.client?.admin && !this.isAdmin(actor)) return 'No se puede expulsar a un administrador.';
     if (m.client) {
-      m.client.send({ t: 'left', reason: 'Fuiste expulsado por el anfitrión.' });
+      m.client.send({ t: 'left', reason: this.isAdmin(actor) ? 'Fuiste expulsado por un administrador.' : 'Fuiste expulsado por el anfitrión.' });
     }
     this.leave(target);
     return null;
+  }
+
+  /** Sólo administradores: pasar el rol de anfitrión a otro humano. */
+  makeHost(actor: string, target: string): string | null {
+    if (!this.isAdmin(actor)) return 'Sólo un administrador puede cambiar el anfitrión.';
+    const m = this.members.get(target);
+    if (!m || m.bot) return 'Jugador inexistente.';
+    if (this.hostId === target) return null;
+    this.hostId = target;
+    this.sys(`${m.nick} ahora es anfitrión.`);
+    this.sendRoom();
+    return null;
+  }
+
+  adminState(): AdminState {
+    const g = this.game;
+    return {
+      uptime: Math.round((Date.now() - this.createdAt) / 1000),
+      game: g && {
+        phase: g.phase, paused: g.paused, score: { ...g.score },
+        time: Math.floor(g.time / 60), timeLimit: Math.floor(g.timeLimit / 60), overtime: g.overtime, tick: g.tick,
+      },
+      snapBytes: g ? this.snapBytes : 0,
+      members: [...this.members.values()].map((m) => ({
+        id: m.id, nick: m.nick, side: m.side, bot: m.bot, admin: !!m.client?.admin,
+        ping: m.client?.ping ?? 0, queue: m.queue.length, starved: m.starved, ack: m.ack,
+      })),
+    };
+  }
+
+  private sendAdminState(): void {
+    const admins = [...this.members.values()].filter((m) => m.client?.admin);
+    if (!admins.length) return;
+    const raw = JSON.stringify({ t: 'adminstate', s: this.adminState() });
+    for (const m of admins) m.client!.send(raw);
   }
 
   /** Recibe una entrada de un jugador. El servidor procesa una por tick. */
@@ -281,6 +332,8 @@ export class Room {
   }
 
   tick(): void {
+    // panel de administración: dos veces por segundo
+    if (++this.ticks % 30 === 0) this.sendAdminState();
     const g = this.game;
     if (!g) return;
     for (const m of this.members.values()) {
@@ -312,6 +365,7 @@ export class Room {
     const stateJson = JSON.stringify(g);
     g.events = saved;
     const evJson = JSON.stringify(this.events);
+    this.snapBytes = stateJson.length + evJson.length + 40;
     this.events = [];
     for (const m of this.members.values()) {
       if (!m.client) continue;

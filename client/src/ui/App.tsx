@@ -37,6 +37,9 @@ export function App() {
   const [screen, setScreen] = useState<Screen>(() => (prefs.nick ? { k: 'lobby' } : { k: 'nick' }));
   const n = useNet();
 
+  // clave de administrador: se usa al conectarse a cada sala
+  useEffect(() => net.setAdminKey(prefs.adminKey), [prefs.adminKey]);
+
   // conectar al entrar al lobby (y unirse por invitación)
   useEffect(() => {
     if (screen.k === 'lobby' && prefs.nick && n.status === 'closed') {
@@ -356,14 +359,15 @@ function MemberRow({ m, room, isHost }: { m: RoomMember; room: RoomInfo; isHost:
   return (
     <div className={`member ${m.id === n.id ? 'me' : ''}`}>
       <HeroBadge hero={m.hero} size={18} team={m.side} />
-      <span className="mnick">{m.host && <span title="Anfitrión">★ </span>}{m.nick}{m.bot && <span className="bot-tag">BOT</span>}</span>
+      <span className="mnick">{m.host && <span title="Anfitrión">★ </span>}{m.nick}{m.bot && <span className="bot-tag">BOT</span>}{m.admin && <span className="admin-tag" title="Administrador verificado">ADMIN</span>}</span>
       {!m.bot && m.id !== n.id && <span className="mping">{m.ping} ms</span>}
       {isHost && (
         <span className="mactions">
           {m.side !== 'red' && <button className="mini red" onClick={() => move('red')} title="Mover a Rojo">R</button>}
           {m.side !== 'spec' && !m.bot && <button className="mini" onClick={() => move('spec')} title="Mover a espectadores">S</button>}
           {m.side !== 'blue' && <button className="mini blue" onClick={() => move('blue')} title="Mover a Azul">A</button>}
-          {m.id !== n.id && <button className="mini" onClick={() => n.send({ t: 'kick', target: m.id })} title={m.bot ? 'Quitar bot' : 'Expulsar'}>✕</button>}
+          {n.isAdmin && !m.bot && !m.host && <button className="mini" onClick={() => n.send({ t: 'makehost', target: m.id })} title="Hacer anfitrión">★</button>}
+          {m.id !== n.id && !(m.admin && !n.isAdmin) && <button className="mini" onClick={() => n.send({ t: 'kick', target: m.id })} title={m.bot ? 'Quitar bot' : 'Expulsar'}>✕</button>}
         </span>
       )}
       <span className="sr" hidden>{room.id}</span>
@@ -374,7 +378,8 @@ function MemberRow({ m, room, isHost }: { m: RoomMember; room: RoomInfo; isHost:
 function RoomPanel({ room, prefs, setPrefs, onClose }: { room: RoomInfo; prefs: Prefs; setPrefs: (p: Prefs) => void; onClose?: () => void }) {
   const n = useNet();
   const me = room.members.find((m) => m.id === n.id);
-  const isHost = room.hostId === n.id;
+  // un administrador tiene los mismos permisos que el anfitrión
+  const isHost = room.hostId === n.id || n.isAdmin;
   const [copied, setCopied] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const invite = `${location.origin}${location.pathname}?sala=${room.id}`;
@@ -448,8 +453,52 @@ function RoomPanel({ room, prefs, setPrefs, onClose }: { room: RoomInfo; prefs: 
           {showSettings && <SettingsPanel prefs={prefs} setPrefs={setPrefs} />}
         </div>
       </div>
+      {n.isAdmin && <AdminPanel />}
       <Chat docked lines={n.chat} send={(text) => n.send({ t: 'chat', text })} />
       <Controls />
+    </div>
+  );
+}
+
+function AdminPanel() {
+  const n = useNet();
+  const a = n.adminState;
+  const sideName: Record<Side, string> = { red: 'Rojo', blue: 'Azul', spec: 'Espect.' };
+  const g = a?.game;
+  const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  return (
+    <div className="admin-panel">
+      <div className="admin-head">
+        <b>Panel de administración</b>
+        <span className="muted small">Tenés permisos de anfitrión en esta sala.</span>
+      </div>
+      {!a ? <div className="muted small">Esperando datos de la sala…</div> : (
+        <>
+          <div className="admin-stats">
+            <span>Sala abierta: <b>{clock(a.uptime)}</b></span>
+            <span>Estado: <b>{g ? (g.paused ? 'En pausa' : { kickoff: 'Saque', playing: 'En juego', goal: 'Gol', ended: 'Terminado' }[g.phase] ?? g.phase) : 'Sin partido'}</b></span>
+            {g && <span>Marcador: <b>{g.score.red} - {g.score.blue}</b></span>}
+            {g && <span>Tiempo: <b>{clock(g.time)}{g.timeLimit ? ' / ' + clock(g.timeLimit) : ''}{g.overtime ? ' (gol de oro)' : ''}</b></span>}
+            {g && <span>Tick: <b>{g.tick}</b></span>}
+            {g && <span>Snapshot: <b>{(a.snapBytes / 1024).toFixed(1)} KB</b> × 30/s</span>}
+          </div>
+          <table className="admin-table">
+            <thead><tr><th>Jugador</th><th>Equipo</th><th>Ping</th><th>Cola</th><th>Sin entradas</th><th>Última entrada</th></tr></thead>
+            <tbody>
+              {a.members.map((m) => (
+                <tr key={m.id}>
+                  <td>{m.nick}{m.bot ? ' [BOT]' : ''}{m.admin ? ' [ADMIN]' : ''} <span className="muted">{m.id}</span></td>
+                  <td>{sideName[m.side]}</td>
+                  <td>{m.bot ? '—' : `${m.ping} ms`}</td>
+                  <td>{m.bot ? '—' : m.queue}</td>
+                  <td className={m.starved > 30 ? 'warn' : ''}>{m.bot || m.side === 'spec' ? '—' : `${(m.starved / 60).toFixed(1)} s`}</td>
+                  <td>{m.bot ? '—' : m.ack}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
     </div>
   );
 }

@@ -43,6 +43,8 @@ export interface RoomMember {
   hero: HeroId;
   bot: boolean;
   host: boolean;
+  /** Administrador verificado con clave firmada. */
+  admin: boolean;
   ping: number;
 }
 
@@ -53,6 +55,36 @@ export interface RoomInfo {
   members: RoomMember[];
   hostId: string;
   playing: boolean;
+}
+
+/** Estado detallado de la sala, sólo para administradores. */
+export interface AdminState {
+  /** Segundos desde que se creó la sala. */
+  uptime: number;
+  game: null | {
+    phase: string;
+    paused: boolean;
+    score: { red: number; blue: number };
+    /** Segundos jugados y límite (0 = sin límite). */
+    time: number;
+    timeLimit: number;
+    overtime: boolean;
+    tick: number;
+  };
+  /** Tamaño del último snapshot enviado (bytes). */
+  snapBytes: number;
+  members: {
+    id: string;
+    nick: string;
+    side: Side;
+    bot: boolean;
+    admin: boolean;
+    ping: number;
+    /** Entradas en cola y ticks sin recibir entradas. */
+    queue: number;
+    starved: number;
+    ack: number;
+  }[];
 }
 
 export type ClientMsg =
@@ -71,11 +103,15 @@ export type ClientMsg =
   | { t: 'restart' }
   | { t: 'addbot'; side: Team }
   | { t: 'kick'; target: string }
+  | { t: 'admin'; sig: string }
+  | { t: 'makehost'; target: string }
   | { t: 'in'; s: number; b: number }
   | { t: 'ping'; c: number; r?: number };
 
 export type ServerMsg =
-  | { t: 'welcome'; id: string; v: number }
+  | { t: 'welcome'; id: string; v: number; nonce: string }
+  | { t: 'admin'; ok: boolean }
+  | { t: 'adminstate'; s: AdminState }
   | { t: 'rooms'; rooms: RoomSummary[] }
   | { t: 'room'; room: RoomInfo }
   | { t: 'left'; reason?: string }
@@ -172,8 +208,12 @@ export function parseClientMessage(raw: string): ClientMsg | null {
       if (o.side !== 'red' && o.side !== 'blue') return null;
       return { t: 'addbot', side: o.side };
     case 'kick':
+    case 'makehost':
       if (!isStr(o.target, 16)) return null;
-      return { t: 'kick', target: o.target };
+      return { t: o.t, target: o.target };
+    case 'admin':
+      if (!isStr(o.sig, 200)) return null;
+      return { t: 'admin', sig: o.sig };
     case 'in':
       if (!isInt(o.s, 0, 2 ** 31) || !isInt(o.b, 0, 127)) return null;
       return { t: 'in', s: o.s, b: o.b };

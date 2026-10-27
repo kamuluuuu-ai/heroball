@@ -1,7 +1,8 @@
 // Conexión con la sala (servidor Node por WebSocket, o anfitrión en navegador
 // por WebRTC). Los snapshots van directo a la sesión de juego (sin pasar por
 // React); la interfaz sólo escucha sala, chat y estado.
-import { PROTOCOL_VERSION, type ClientMsg, type RoomInfo, type RoomSettings, type RoomSummary, type ServerMsg } from '../../../shared/protocol';
+import { signAdmin } from '../../../shared/admin';
+import { PROTOCOL_VERSION, type AdminState, type ClientMsg, type RoomInfo, type RoomSettings, type RoomSummary, type ServerMsg } from '../../../shared/protocol';
 import type { GameEvent, GameState, Side } from '../../../shared/types';
 import { BrowserHost, P2P, peerGuestTransport, wsTransport, type Transport } from './transport';
 
@@ -40,6 +41,13 @@ export class NetClient {
   /** Latencia artificial (ms, sólo para pruebas) aplicada a envío y recepción. */
   fakeLag = 0;
   sink: SnapshotSink | null = null;
+  /** Clave privada de administrador (base64), si el usuario la cargó. */
+  adminKey = '';
+  /** Verificado como administrador en esta conexión. */
+  isAdmin = false;
+  adminError: string | null = null;
+  adminState: AdminState | null = null;
+  private nonce = '';
   private listeners = new Set<Listener>();
   private pingTimer = 0;
   private lastMsgAt = 0;
@@ -117,8 +125,33 @@ export class NetClient {
     };
   }
 
+  /** Firma el desafío de esta conexión con la clave de administrador. */
+  private proveAdmin(): void {
+    if (!this.adminKey || !this.nonce || this.isAdmin) return;
+    const t = this.transport;
+    signAdmin(this.adminKey, this.nonce, this.id)
+      .then((sig) => { if (this.transport === t) this.send({ t: 'admin', sig }); })
+      .catch(() => {
+        this.adminError = 'La clave de administrador no tiene un formato válido.';
+        this.emit();
+      });
+  }
+
+  setAdminKey(key: string): void {
+    this.adminKey = key.trim();
+    this.adminError = null;
+    if (!this.adminKey) {
+      this.emit();
+      return;
+    }
+    this.proveAdmin();
+  }
+
   private detach(): void {
     window.clearInterval(this.pingTimer);
+    this.isAdmin = false;
+    this.adminState = null;
+    this.nonce = '';
     this.transport = null;
     this.host = null;
     this.room = null;
@@ -194,6 +227,8 @@ export class NetClient {
     switch (m.t) {
       case 'welcome':
         this.id = m.id;
+        this.nonce = m.nonce;
+        this.proveAdmin();
         if (!this.p2p) this.send({ t: 'list' });
         if (this.pendingJoin) {
           this.send({ t: 'join', room: this.pendingJoin });
@@ -238,6 +273,13 @@ export class NetClient {
         this.ping = this.ping === 0 ? rtt : this.ping * 0.7 + rtt * 0.3;
         break;
       }
+      case 'admin':
+        this.isAdmin = m.ok;
+        this.adminError = m.ok ? null : 'La clave de administrador no coincide.';
+        break;
+      case 'adminstate':
+        this.adminState = m.s;
+        break;
       case 'error':
         this.error = m.msg;
         break;

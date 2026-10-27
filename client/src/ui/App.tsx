@@ -153,7 +153,7 @@ function Lobby({ prefs, setPrefs, onChangeNick, onOffline }: {
               <div key={r.id} className="room-row" onDoubleClick={() => n.send({ t: 'join', room: r.id })} onClick={() => n.send({ t: 'join', room: r.id })}>
                 <span className="rname">{r.name}</span>
                 <span>{r.players}/{r.maxPlayers}</span>
-                <span>{r.mode === 'heroes' ? 'Héroes' : 'Clásico'} {r.teamSize}v{r.teamSize}</span>
+                <span>{MODE_LABEL[r.mode]} {r.teamSize}v{r.teamSize}</span>
                 <span>{r.playing ? 'En juego' : 'Esperando'}</span>
               </div>
             ))}
@@ -197,6 +197,8 @@ function WebModeHelp() {
   );
 }
 
+const MODE_LABEL: Record<GameMode, string> = { heroes: 'Héroes', super: 'Súper', classic: 'Clásico' };
+
 function ConnBadge() {
   const n = useNet();
   if (n.p2p && !n.linked && n.status === 'open') return <span className="conn open">● Modo web (sin servidor)</span>;
@@ -210,6 +212,7 @@ function SettingsFields({ s, onChange, disabled }: { s: RoomSettings; onChange: 
       <label>Modo
         <select disabled={disabled} value={s.mode} onChange={(e) => onChange({ mode: e.target.value as GameMode })}>
           <option value="heroes">Héroes</option>
+          <option value="super">Súper (poderes potenciados)</option>
           <option value="classic">Clásico (sin poderes)</option>
         </select>
       </label>
@@ -275,11 +278,12 @@ function OfflineSetup({ kind, prefs, setPrefs, onCancel, onStart }: {
   return (
     <div className="menu-bg center">
       <Panel title={kind === 'training' ? 'Entrenamiento (sin conexión)' : 'Partido contra bots (sin conexión)'}>
-        <HeroPicker value={prefs.hero} onChange={(hero) => setPrefs({ ...prefs, hero })} team="red" />
+        {mode !== 'classic' && <HeroPicker mode={mode} value={prefs.hero} onChange={(hero) => setPrefs({ ...prefs, hero })} team="red" />}
         <div className="fields">
           <label>Modo
             <select value={mode} onChange={(e) => setMode(e.target.value as GameMode)}>
               <option value="heroes">Héroes</option>
+              <option value="super">Súper</option>
               <option value="classic">Clásico</option>
             </select>
           </label>
@@ -410,8 +414,9 @@ function RoomPanel({ room, prefs, setPrefs, onClose }: { room: RoomInfo; prefs: 
       </div>
       <div className="room-bottom">
         <div className="room-left">
-          {room.settings.mode === 'heroes' && (
+          {room.settings.mode !== 'classic' && (
             <HeroPicker
+              mode={room.settings.mode}
               value={me?.hero ?? prefs.hero}
               team={me?.side}
               onChange={(hero: HeroId) => {
@@ -476,7 +481,7 @@ function OfflineGame({ prefs, setPrefs, opts, onExit }: { prefs: Prefs; setPrefs
       prefs={prefs}
       menuOpen={menu || ended}
       onToggleMenu={() => setMenu((v) => !v)}
-      status={<span className="muted">{opts.kind === 'training' ? 'Entrenamiento' : 'Contra bots'} · {opts.mode === 'heroes' ? 'Héroes' : 'Clásico'}</span>}
+      status={<span className="muted">{opts.kind === 'training' ? 'Entrenamiento' : 'Contra bots'} · {MODE_LABEL[opts.mode]}</span>}
       extraKeys={(e) => {
         if (e.code === 'KeyR' && opts.kind === 'training') session.resetPositions();
       }}
@@ -484,6 +489,7 @@ function OfflineGame({ prefs, setPrefs, opts, onExit }: { prefs: Prefs; setPrefs
         <div className="panel offline-menu">
           <h1>{ended ? (session.state.winner ? `¡Ganó ${session.state.winner === 'red' ? 'Rojo' : 'Azul'}!` : 'Fin del partido') : 'Menú'}</h1>
           <HeroPicker
+            mode={opts.mode}
             value={prefs.hero}
             team="red"
             onChange={(hero) => { setPrefs({ ...prefs, hero }); session.setHero(hero); }}

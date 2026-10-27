@@ -5,7 +5,7 @@ import { stadium, type Seg } from '../../../shared/physics';
 import type { GameEvent, GameState, PlayerState, Team } from '../../../shared/types';
 import { IN } from '../../../shared/types';
 import { drawHero } from './heroArt';
-import { autoAim } from '../../../shared/powers';
+import { autoAim, grappleAim } from '../../../shared/powers';
 
 interface Fx {
   kind: 'ring' | 'spark';
@@ -144,40 +144,37 @@ export class Renderer {
     this.drawField(c);
     if (!s) return;
 
-    for (const z of s.zones) {
-      const k = Math.min(1, z.ticks / 20, (z.total - z.ticks + 1) / 8);
-      const g = c.createRadialGradient(z.x, z.y, z.r * 0.2, z.x, z.y, z.r);
-      g.addColorStop(0, `rgba(60,60,70,${0.38 * k})`);
-      g.addColorStop(1, `rgba(60,60,70,0)`);
-      c.fillStyle = g;
-      c.beginPath();
-      c.arc(z.x, z.y, z.r, 0, Math.PI * 2);
-      c.fill();
-    }
-
-    // hilos de telaraña
-    c.strokeStyle = 'rgba(255,255,255,0.9)';
-    c.lineWidth = 1.5;
-    for (const t of s.tethers) {
-      const p = s.players.find((o2) => o2.id === t.owner);
+    // hilos: telaraña (pelota o rival) y gancho de Batman
+    for (const th of s.tethers) {
+      const p = s.players.find((o2) => o2.id === th.owner);
       if (!p) continue;
+      const end = th.target ? s.players.find((o2) => o2.id === th.target)?.d : s.ball;
+      if (!end) continue;
       c.beginPath();
       c.moveTo(p.d.x, p.d.y);
-      c.lineTo(s.ball.x, s.ball.y);
+      c.lineTo(end.x, end.y);
+      if (th.kind === 'grapple') {
+        c.strokeStyle = 'rgba(25,25,30,0.95)';
+        c.lineWidth = 2;
+      } else {
+        c.strokeStyle = 'rgba(255,255,255,0.9)';
+        c.lineWidth = 1.5;
+      }
       c.stroke();
     }
     for (const pr of s.projectiles) {
-      if (pr.kind === 'web') {
+      if (pr.kind === 'web' || pr.kind === 'hook') {
+        const hook = pr.kind === 'hook';
         const p = s.players.find((o2) => o2.id === pr.owner);
         if (p) {
-          c.strokeStyle = 'rgba(255,255,255,0.7)';
-          c.lineWidth = 1;
+          c.strokeStyle = hook ? 'rgba(25,25,30,0.85)' : 'rgba(255,255,255,0.7)';
+          c.lineWidth = hook ? 1.5 : 1;
           c.beginPath();
           c.moveTo(p.d.x, p.d.y);
           c.lineTo(pr.x, pr.y);
           c.stroke();
         }
-        c.fillStyle = '#fff';
+        c.fillStyle = hook ? '#F2C230' : '#fff';
         c.beginPath();
         c.arc(pr.x, pr.y, pr.r + 1, 0, Math.PI * 2);
         c.fill();
@@ -308,7 +305,7 @@ export class Renderer {
     c.arc(x, y, r, 0, Math.PI * 2);
     c.fillStyle = team;
     c.fill();
-    if (s.mode === 'heroes') {
+    if (s.mode !== 'classic') {
       // emblema dentro de un anillo del color del equipo
       c.save();
       c.translate(x, y);
@@ -322,7 +319,7 @@ export class Renderer {
     c.stroke();
 
     // indicador de dirección apuntada del jugador local
-    if (local && s.mode === 'heroes') {
+    if (local && s.mode !== 'classic') {
       const ax = x + p.ax * (r + 6);
       const ay = y + p.ay * (r + 6);
       c.save();
@@ -355,9 +352,24 @@ export class Renderer {
 
   /** Mira sobre el objetivo que tomaría el autoapuntado de tu Q. */
   private drawAimReticle(c: CanvasRenderingContext2D, s: GameState, localId: string): void {
-    if (s.mode !== 'heroes' || s.phase !== 'playing' || s.paused) return;
+    if (s.mode === 'classic' || s.phase !== 'playing' || s.paused) return;
     const me = s.players.find((p) => p.id === localId);
-    if (!me || me.cdQ > 0 || (me.hero !== 'spider' && me.hero !== 'batman')) return;
+    if (!me) return;
+    // gancho listo y la pelota a su alcance: pequeño rombo sobre la pelota
+    if (me.hero === 'batman' && me.cdE === 0 && grappleAim(s, me)?.inRange) {
+      c.save();
+      c.translate(s.ball.x, s.ball.y - s.ball.r - 7);
+      c.beginPath();
+      c.moveTo(0, -3.5);
+      c.lineTo(3.5, 0);
+      c.lineTo(0, 3.5);
+      c.lineTo(-3.5, 0);
+      c.closePath();
+      c.fillStyle = 'rgba(242,194,48,0.9)';
+      c.fill();
+      c.restore();
+    }
+    if (me.cdQ > 0 || (me.hero !== 'spider' && me.hero !== 'batman')) return;
     const aim = autoAim(s, me);
     if (!aim) return;
     const t = aim.target;

@@ -3,7 +3,7 @@ import type { Disc } from './physics';
 
 export type Team = 'red' | 'blue';
 export type Side = Team | 'spec';
-export type GameMode = 'classic' | 'heroes';
+export type GameMode = 'classic' | 'heroes' | 'super';
 export type Phase = 'kickoff' | 'playing' | 'goal' | 'ended';
 
 /** Bits de entrada. El cliente sólo envía esto: nunca posiciones ni impactos. */
@@ -39,7 +39,7 @@ export interface PlayerState {
   fury: number;
   superShot: number;
   superSpeed: number;
-  /** Ralentización por batarang (la de humo se calcula por zona). */
+  /** Ralentización por batarang o aturdimiento de Hulk. */
   slowPct: number;
   slowTicks: number;
   /** Ralentización efectiva aplicada este tick (para dibujar). */
@@ -48,7 +48,7 @@ export interface PlayerState {
 
 export interface Projectile {
   id: number;
-  kind: 'web' | 'batarang';
+  kind: 'web' | 'batarang' | 'hook';
   owner: string;
   team: Team;
   x: number;
@@ -60,20 +60,16 @@ export interface Projectile {
   max: number;
 }
 
+/**
+ * Hilo activo: 'web' (Spider-Man atrae la pelota), 'rival' (Spider-Man atrae a
+ * un rival, sólo Súper) o 'grapple' (gancho: Batman va hacia la pelota).
+ */
 export interface Tether {
   owner: string;
+  kind: 'web' | 'rival' | 'grapple';
+  /** Id del rival en 'rival'; null si el extremo es la pelota. */
+  target: string | null;
   ticks: number;
-}
-
-export interface Zone {
-  id: number;
-  owner: string;
-  team: Team;
-  x: number;
-  y: number;
-  r: number;
-  ticks: number;
-  total: number;
 }
 
 export type GameEvent =
@@ -107,7 +103,6 @@ export interface GameState {
   players: PlayerState[];
   projectiles: Projectile[];
   tethers: Tether[];
-  zones: Zone[];
   nextId: number;
   lastTouch: string | null;
   events: GameEvent[];

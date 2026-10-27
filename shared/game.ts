@@ -1,5 +1,5 @@
 // Reglas del partido: saque, goles, tiempo, gol de oro, patadas y entradas.
-import { HeroId, KICK, LIMITS, PLAYER, POWERS, RULES, STADIUM, TICK_RATE } from './config';
+import { HeroId, KICK, LIMITS, PLAYER, RULES, STADIUM, TICK_RATE, powersFor } from './config';
 import { clampSpeed, makeDisc, Seg, stadium, stepWorld } from './physics';
 import { accelMult, activate, applyDash, clearEffects, kickMult, speedLimitMult, updatePowers } from './powers';
 import { GameMode, GameState, IN, PlayerState, Team } from './types';
@@ -33,7 +33,6 @@ export function createGame(o: GameOptions): GameState {
     players: [],
     projectiles: [],
     tethers: [],
-    zones: [],
     nextId: 1,
     lastTouch: null,
     events: [],
@@ -77,7 +76,7 @@ export function addPlayer(s: GameState, id: string, team: Team, hero: HeroId): P
 export function removePlayer(s: GameState, id: string): void {
   s.players = s.players.filter((p) => p.id !== id);
   s.projectiles = s.projectiles.filter((p) => p.owner !== id);
-  s.tethers = s.tethers.filter((t) => t.owner !== id);
+  s.tethers = s.tethers.filter((t) => t.owner !== id && t.target !== id);
   if (s.lastTouch === id) s.lastTouch = null;
 }
 
@@ -121,8 +120,13 @@ export function setInput(s: GameState, id: string, bits: number): void {
   if (p) p.input = bits & 127;
 }
 
+/** Héroes y Súper usan poderes; Clásico no. */
+export function hasPowers(s: GameState): boolean {
+  return s.mode !== 'classic';
+}
+
 export function powersEnabled(s: GameState): boolean {
-  return s.mode === 'heroes' && s.phase === 'playing' && !s.paused;
+  return hasPowers(s) && s.phase === 'playing' && !s.paused;
 }
 
 function kickoffBarriers(s: GameState): Seg[] {
@@ -171,18 +175,18 @@ function updatePlayer(s: GameState, p: PlayerState): void {
   }
 
   const fury = p.fury > 0;
-  p.d.invMass = fury ? PLAYER.invMass / POWERS.hulk.fury.massMult : PLAYER.invMass;
+  p.d.invMass = fury ? PLAYER.invMass / powersFor(s.mode).hulk.fury.massMult : PLAYER.invMass;
   p.d.damping = held ? PLAYER.kickingDamping : PLAYER.damping;
 
   if (p.dash > 0) {
-    applyDash(p);
+    applyDash(s, p);
   } else {
     const a = (held ? PLAYER.kickingAcceleration : PLAYER.acceleration) * accelMult(s, p);
     const before = Math.hypot(p.d.vx, p.d.vy);
     p.d.vx += dx * a;
     p.d.vy += dy * a;
     // la propia aceleración no supera el límite configurado (los empujes externos sí)
-    const lim = Math.max(before, LIMITS.playerInputSpeed * speedLimitMult(p));
+    const lim = Math.max(before, LIMITS.playerInputSpeed * speedLimitMult(s, p));
     clampSpeed(p.d, lim);
   }
   p.prevInput = bits;
@@ -197,7 +201,7 @@ function tryKick(s: GameState, p: PlayerState): void {
   if (dist === 0 || dist - b.r - p.d.r >= KICK.range) return;
   const nx = dx / dist;
   const ny = dy / dist;
-  const m = s.mode === 'heroes' ? kickMult(p) : 1;
+  const m = hasPowers(s) ? kickMult(s, p) : 1;
   const k = PLAYER.kickStrength * m;
   b.vx += nx * k * b.invMass;
   b.vy += ny * k * b.invMass;
@@ -260,7 +264,7 @@ export function step(s: GameState): void {
   stepWorld({ ball: s.ball, players: s.players.map((p) => p.d), playerBarriers: kickoffBarriers(s) });
   clampSpeed(s.ball, LIMITS.ballMaxSpeed);
   for (const p of s.players) clampSpeed(p.d, LIMITS.playerMaxSpeed);
-  if (s.mode === 'heroes') updatePowers(s);
+  if (hasPowers(s)) updatePowers(s);
 
   switch (s.phase) {
     case 'kickoff':

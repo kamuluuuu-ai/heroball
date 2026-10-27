@@ -100,7 +100,7 @@ export function sanitizeSettings(raw: unknown): Partial<RoomSettings> | null {
   const r = raw as Record<string, unknown>;
   const out: Partial<RoomSettings> = {};
   if ('mode' in r) {
-    if (r.mode !== 'classic' && r.mode !== 'heroes') return null;
+    if (r.mode !== 'classic' && r.mode !== 'heroes' && r.mode !== 'super') return null;
     out.mode = r.mode;
   }
   if ('timeLimitMin' in r) {

@@ -1,7 +1,7 @@
 // IA sencilla para bots. Sólo produce bits de entrada, igual que un humano:
 // no toca la física directamente.
-import { POWERS, R, STADIUM } from './config';
-import { teamDir } from './game';
+import { R, STADIUM, powersFor } from './config';
+import { hasPowers, teamDir } from './game';
 import { GameState, IN, PlayerState } from './types';
 
 export interface BotBrain {
@@ -90,7 +90,8 @@ export function botInput(s: GameState, brain: BotBrain, rnd: () => number = Math
   bits |= dirBits(tx - me.d.x, ty - me.d.y + brain.wander);
 
   // poderes
-  if (s.mode === 'heroes' && s.phase === 'playing') {
+  if (hasPowers(s) && s.phase === 'playing') {
+    const P = powersFor(s.mode);
     const d = Math.hypot(b.x - me.d.x, b.y - me.d.y);
     const facing = d > 0 ? ((b.x - me.d.x) * me.ax + (b.y - me.d.y) * me.ay) / d : 0;
     const roll = rnd();
@@ -100,12 +101,13 @@ export function botInput(s: GameState, brain: BotBrain, rnd: () => number = Math
     const towardGoal = (b.x - me.d.x) * dir > 0;
     switch (me.hero) {
       case 'spider':
-        if (useQ(d < POWERS.spider.web.range * 0.9 && d > 4 * R)) bits |= IN.Q;
+        if (useQ(d < Math.min(P.spider.web.range * 0.9, 24 * R) && d > 4 * R)) bits |= IN.Q;
         else if (useE(isAttacker && d > 6 * R && facing > 0.9)) bits |= IN.E;
         break;
       case 'batman':
-        if (useQ(d < POWERS.batman.batarang.range * 0.8 && facing > 0.3 && towardGoal)) bits |= IN.Q;
-        else if (useE(!isAttacker && d < 5 * R)) bits |= IN.E;
+        if (useQ(d < P.batman.batarang.range * 0.8 && facing > 0.3 && towardGoal)) bits |= IN.Q;
+        // gancho: alcanzar la pelota cuando está lejos y del lado propio o libre
+        else if (useE(d > 6 * R && d < Math.min(P.batman.grapple.range * 0.9, 24 * R))) bits |= IN.E;
         break;
       case 'hulk':
         if (useQ(d < 3.5 * R && towardGoal)) bits |= IN.Q;

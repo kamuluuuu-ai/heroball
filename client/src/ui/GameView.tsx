@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { HEROES, TICK_RATE, type HeroId } from '../../../shared/config';
+import { TICK_RATE, heroInfo } from '../../../shared/config';
 import { clockText } from '../../../shared/game';
 import type { GameState } from '../../../shared/types';
 import { IN } from '../../../shared/types';
@@ -134,7 +134,7 @@ export function GameView(p: Props) {
 
 /** Actualiza el HUD directamente en el DOM, sólo cuando cambia algo. */
 class HudWriter {
-  private last = { red: -1, blue: -1, clock: '', hero: '' as HeroId | '', q: '', e: '', idle: true, mode: '' };
+  private last = { red: -1, blue: -1, clock: '', hero: '', q: '', e: '', idle: true, mode: '' };
   private q: { root: HTMLDivElement; cd: HTMLSpanElement; fill: HTMLDivElement; icon: HTMLCanvasElement } | null = null;
   private e: typeof this.q = null;
 
@@ -181,25 +181,26 @@ class HudWriter {
       this.clock.textContent = L.clock = clock;
       this.clock.classList.toggle('over', s.overtime || (s.timeLimit > 0 && s.timeLimit - s.time < 10 * TICK_RATE));
     }
-    const p = s.mode === 'heroes' ? s.players.find((o) => o.id === me) : undefined;
+    const p = s.mode !== 'classic' ? s.players.find((o) => o.id === me) : undefined;
     this.powers.style.display = p ? '' : 'none';
     if (!p) return;
     if (!this.q) {
       this.q = this.slot('Q');
       this.e = this.slot('E');
     }
-    if (p.hero !== L.hero) {
-      L.hero = p.hero;
+    const info = heroInfo(p.hero, s.mode);
+    if (p.hero + s.mode !== L.hero) {
+      L.hero = p.hero + s.mode;
       for (const [sl, key] of [[this.q, 'q'], [this.e!, 'e']] as const) {
         const c = sl.icon.getContext('2d')!;
         c.clearRect(0, 0, 56, 56);
         drawPowerIcon(c, p.hero, key, 56);
-        sl.root.title = `${HEROES[p.hero][key].name}: ${HEROES[p.hero][key].desc}`;
+        sl.root.title = `${info[key].name}: ${info[key].desc}`;
       }
     }
     const blocked = s.phase !== 'playing' || s.paused;
-    this.paint(this.q, p.cdQ, HEROES[p.hero].q.cooldown, blocked, p.superShot > 0 || false);
-    this.paint(this.e!, p.cdE, HEROES[p.hero].e.cooldown, blocked, p.dash > 0 || p.fury > 0 || p.superSpeed > 0);
+    this.paint(this.q, p.cdQ, info.q.cooldown, blocked, p.superShot > 0 || false);
+    this.paint(this.e!, p.cdE, info.e.cooldown, blocked, p.dash > 0 || p.fury > 0 || p.superSpeed > 0);
   }
 
   private paint(sl: NonNullable<typeof this.q>, cd: number, total: number, blocked: boolean, active: boolean) {

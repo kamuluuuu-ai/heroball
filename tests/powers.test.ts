@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { BALL, HeroId, PLAYER, POWERS, R } from '../shared/config';
+import { BALL, HeroId, PLAYER, POWERS, R, SUPER_POWERS } from '../shared/config';
+import { sanitizeSettings } from '../shared/protocol';
 import { createGame, requestHero, setInput, step } from '../shared/game';
 import { GameState, IN, Team } from '../shared/types';
 
 type P = { id: string; team: Team; hero: HeroId };
 
-function game(players: P[]): GameState {
-  const s = createGame({ mode: 'heroes', timeLimitMin: 3, scoreLimit: 3, players });
+function game(players: P[], mode: 'heroes' | 'super' = 'heroes'): GameState {
+  const s = createGame({ mode, timeLimitMin: 3, scoreLimit: 3, players });
   s.phase = 'playing';
   return s;
 }
@@ -75,14 +76,13 @@ describe('reglas comunes', () => {
     place(s, 'b', 100, -150);
     tick(s, { a: IN.E, b: IN.E });
     tick(s, { a: IN.Q, b: 0 });
-    expect(s.zones.length).toBe(1);
-    expect(s.projectiles.length).toBe(1);
+    expect(s.projectiles.length).toBe(2); // gancho + batarang
     expect(s.players[1].fury).toBeGreaterThan(0);
     s.ball.x = 360; s.ball.y = 0; s.ball.vx = 8;
     for (let i = 0; i < 5 && s.phase === 'playing'; i++) tick(s, { a: 0, b: 0 });
     expect(s.phase).toBe('goal');
-    expect(s.zones.length).toBe(0);
     expect(s.projectiles.length).toBe(0);
+    expect(s.tethers.length).toBe(0);
     expect(s.players[1].fury).toBe(0);
     for (let i = 0; i < 200 && s.phase !== 'kickoff'; i++) tick(s);
     expect(s.phase).toBe('kickoff');
@@ -103,7 +103,9 @@ describe('reglas comunes', () => {
     const s = game([{ id: 'a', team: 'red', hero: 'batman' }, { id: 'b', team: 'blue', hero: 'spider' }]);
     place(s, 'a', 0, 100);
     place(s, 'b', 40, 100);
-    tick(s, { a: IN.E }); // humo encima del rival
+    // ralentización previa más débil (25 %) que la del batarang (30 %)
+    s.players[1].slowPct = 0.25;
+    s.players[1].slowTicks = 200;
     aim(s, 'a', 1, 0);
     tick(s, { a: IN.Q }); // batarang al rival
     for (let i = 0; i < 4; i++) tick(s, { a: 0, b: IN.RIGHT });
@@ -258,21 +260,53 @@ describe('Batman', () => {
     expect(s.projectiles.length).toBe(0);
   });
 
-  it('el humo frena rivales y no aliados', () => {
-    const s = game([
-      { id: 'a', team: 'red', hero: 'batman' },
-      { id: 'm', team: 'red', hero: 'hulk' },
-      { id: 'b', team: 'blue', hero: 'spider' },
-    ]);
-    place(s, 'a', 0, 100);
-    place(s, 'm', -30, 130);
-    place(s, 'b', 30, 70);
+  it('el gancho lleva a Batman hasta la pelota (y atraviesa jugadores)', () => {
+    const s = game([{ id: 'a', team: 'red', hero: 'batman' }, { id: 'b', team: 'blue', hero: 'spider' }]);
+    place(s, 'a', -120, 40);
+    place(s, 'b', -60, 40); // en medio del camino
+    aim(s, 'a', 0, -1); // apunta hacia otro lado: el gancho busca la pelota igual
+    s.ball.x = 0; s.ball.y = 40;
     tick(s, { a: IN.E });
-    tick(s, { a: 0, m: IN.LEFT, b: IN.RIGHT });
-    expect(s.players.find((p) => p.id === 'b')!.slowNow).toBeCloseTo(0.25, 5);
-    expect(s.players.find((p) => p.id === 'm')!.slowNow).toBe(0);
-    for (let i = 0; i < POWERS.batman.smoke.ticks; i++) tick(s);
-    expect(s.zones.length).toBe(0);
+    expect(s.projectiles[0].kind).toBe('hook');
+    expect(s.projectiles[0].vx).toBeGreaterThan(0.99 * POWERS.batman.grapple.speed);
+    let hooked = false;
+    let minGap = Infinity;
+    const a = s.players[0];
+    for (let i = 0; i < 90; i++) {
+      tick(s, { a: 0, b: 0 });
+      // el gancho pasó a través del rival; después lo apartamos (los cuerpos sí chocan)
+      if (!hooked && s.tethers.some((t) => t.kind === 'grapple')) place(s, 'b', -60, -150);
+      hooked ||= s.tethers.some((t) => t.kind === 'grapple');
+      minGap = Math.min(minGap, Math.hypot(a.d.x - s.ball.x, a.d.y - s.ball.y) - a.d.r - s.ball.r);
+    }
+    expect(hooked).toBe(true);
+    expect(minGap).toBeLessThan(3);
+    expect(a.cdE).toBeGreaterThan(0);
+  });
+
+  it('el gancho falla si la pelota está fuera de alcance', () => {
+    const s = game([{ id: 'a', team: 'red', hero: 'batman' }]);
+    place(s, 'a', -300, 0);
+    s.ball.x = 200; s.ball.y = 0;
+    tick(s, { a: IN.E });
+    for (let i = 0; i < 60; i++) {
+      tick(s, { a: 0 });
+      expect(s.tethers.length).toBe(0);
+    }
+    expect(s.players[0].d.x).toBeLessThan(-290);
+  });
+
+  it('el gancho se corta si un poste se interpone', () => {
+    const s = game([{ id: 'a', team: 'red', hero: 'batman' }]);
+    place(s, 'a', 330, 64 + 40);
+    s.ball.x = 300; s.ball.y = 64 - 20;
+    tick(s, { a: IN.E });
+    for (let i = 0; i < 10; i++) tick(s, { a: 0 });
+    s.ball.x = 400; s.ball.y = 20; // la pelota queda detrás del poste
+    s.ball.vx = 0; s.ball.vy = 0;
+    tick(s, { a: 0 });
+    tick(s, { a: 0 });
+    expect(s.tethers.length).toBe(0);
   });
 });
 
@@ -346,5 +380,129 @@ describe('Superman', () => {
     for (let i = 0; i < 70; i++) { tick(s, { a: IN.RIGHT }); maxV = Math.max(maxV, s.players[0].d.vx); }
     expect(maxV / normal).toBeGreaterThan(1.3);
     expect(maxV / normal).toBeLessThan(1.45);
+  });
+});
+
+describe('modo Súper', () => {
+  it('el protocolo acepta el modo y usa sus recargas', () => {
+    expect(sanitizeSettings({ mode: 'super' })).toEqual({ mode: 'super' });
+    const s = game([{ id: 'a', team: 'red', hero: 'spider' }], 'super');
+    tick(s, { a: IN.Q });
+    expect(s.players[0].cdQ).toBe(SUPER_POWERS.spider.web.cooldown - 1);
+    expect(SUPER_POWERS.spider.web.cooldown).toBeLessThan(POWERS.spider.web.cooldown);
+  });
+
+  it('la telaraña agarra la pelota desde la otra punta de la cancha', () => {
+    const s = game([{ id: 'a', team: 'red', hero: 'spider' }], 'super');
+    place(s, 'a', -340, -120);
+    aim(s, 'a', 1, 0);
+    s.ball.x = 330; s.ball.y = 140;
+    const d0 = Math.hypot(330 + 340, 140 + 120);
+    tick(s, { a: IN.Q });
+    let tethered = false;
+    for (let i = 0; i < 90; i++) {
+      tick(s, { a: 0 });
+      tethered ||= s.tethers.some((t) => t.kind === 'web');
+    }
+    expect(tethered).toBe(true);
+    const p = s.players[0];
+    expect(Math.hypot(p.d.x - s.ball.x, p.d.y - s.ball.y)).toBeLessThan(d0 * 0.6);
+    // en Héroes, la misma situación no alcanza
+    const h = game([{ id: 'a', team: 'red', hero: 'spider' }]);
+    place(h, 'a', -340, -120);
+    aim(h, 'a', 1, 0);
+    h.ball.x = 330; h.ball.y = 140;
+    tick(h, { a: IN.Q });
+    for (let i = 0; i < 90; i++) {
+      tick(h, { a: 0 });
+      expect(h.tethers.length).toBe(0);
+    }
+  });
+
+  it('la telaraña atrapa a un rival y lo arrastra hacia Spider-Man', () => {
+    const s = game([{ id: 'a', team: 'red', hero: 'spider' }, { id: 'b', team: 'blue', hero: 'hulk' }], 'super');
+    place(s, 'a', -150, 0);
+    const b = place(s, 'b', 0, 0);
+    aim(s, 'a', 1, 0);
+    s.ball.x = 0; s.ball.y = 160; // fuera de la línea apuntada
+    tick(s, { a: IN.Q });
+    let grabbed = false;
+    for (let i = 0; i < 12; i++) {
+      tick(s, { a: 0, b: 0 });
+      grabbed ||= s.tethers.some((t) => t.kind === 'rival' && t.target === 'b');
+    }
+    expect(grabbed).toBe(true);
+    expect(b.d.vx).toBeLessThan(-2);
+    expect(b.d.x).toBeLessThan(-10);
+  });
+
+  it('en Héroes la telaraña no atrapa rivales: se corta', () => {
+    const s = game([{ id: 'a', team: 'red', hero: 'spider' }, { id: 'b', team: 'blue', hero: 'hulk' }]);
+    place(s, 'a', -100, 0);
+    place(s, 'b', 0, 0);
+    aim(s, 'a', 1, 0);
+    s.ball.x = 0; s.ball.y = 160;
+    tick(s, { a: IN.Q });
+    for (let i = 0; i < 20; i++) tick(s, { a: 0, b: 0 });
+    expect(s.tethers.length).toBe(0);
+  });
+
+  it('triple batarang en abanico que frena 50 %', () => {
+    const s = game([{ id: 'a', team: 'red', hero: 'batman' }, { id: 'b', team: 'blue', hero: 'spider' }], 'super');
+    place(s, 'a', -100, 0);
+    place(s, 'b', 0, 0);
+    aim(s, 'a', 1, 0);
+    s.ball.x = 0; s.ball.y = 170;
+    tick(s, { a: IN.Q });
+    expect(s.projectiles.filter((p) => p.kind === 'batarang').length).toBe(3);
+    const ys = s.projectiles.map((p) => p.vy).sort((x, y) => x - y);
+    expect(ys[0]).toBeLessThan(0);
+    expect(ys[2]).toBeGreaterThan(0);
+    for (let i = 0; i < 20; i++) tick(s, { a: 0, b: 0 });
+    expect(s.players[1].slowPct).toBeCloseTo(SUPER_POWERS.batman.batarang.slowPct, 5);
+  });
+
+  it('el súper gancho alcanza la pelota lejos y al llegar la empuja', () => {
+    const s = game([{ id: 'a', team: 'red', hero: 'batman' }], 'super');
+    place(s, 'a', -300, 0);
+    s.ball.x = 100; s.ball.y = 0;
+    tick(s, { a: IN.E });
+    let maxBall = 0;
+    let hooked = false;
+    for (let i = 0; i < 120; i++) {
+      tick(s, { a: 0 });
+      hooked ||= s.tethers.length > 0;
+      maxBall = Math.max(maxBall, s.ball.vx);
+    }
+    expect(hooked).toBe(true);
+    expect(maxBall).toBeGreaterThan(SUPER_POWERS.batman.grapple.arriveImpulse);
+  });
+
+  it('el terremoto de Hulk aturde a los rivales y empuja más que en Héroes', () => {
+    const push = (mode: 'heroes' | 'super') => {
+      const s = game([{ id: 'h', team: 'red', hero: 'hulk' }, { id: 'n', team: 'blue', hero: 'spider' }], mode);
+      place(s, 'h', 0, 0);
+      place(s, 'n', 45, 0);
+      s.ball.x = 0; s.ball.y = 150;
+      tick(s, { h: IN.Q });
+      return s.players[1];
+    };
+    const hn = push('heroes');
+    const sn = push('super');
+    expect(sn.d.vx).toBeGreaterThan(hn.d.vx);
+    expect(hn.slowPct).toBe(0);
+    expect(sn.slowPct).toBeCloseTo(SUPER_POWERS.hulk.slam.stunPct, 5);
+  });
+
+  it('el disparo de acero de Superman patea ×2,2', () => {
+    const kick = (mode: 'heroes' | 'super') => {
+      const s = game([{ id: 'a', team: 'red', hero: 'superman' }], mode);
+      place(s, 'a', -100, 0);
+      s.ball.x = -100 + PLAYER.radius + BALL.radius + 1; s.ball.y = 0;
+      tick(s, { a: IN.Q });
+      tick(s, { a: IN.KICK });
+      return s.ball.vx;
+    };
+    expect(kick('super') / kick('heroes')).toBeCloseTo(SUPER_POWERS.superman.superShot.kickMult / POWERS.superman.superShot.kickMult, 1);
   });
 });

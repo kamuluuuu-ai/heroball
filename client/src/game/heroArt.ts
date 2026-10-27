@@ -200,12 +200,21 @@ export function drawPowerIcon(c: Ctx, hero: HeroId, slot: 'q' | 'e', s: number):
       c.quadraticCurveTo(-r * 0.3, 0, -r, -r * 0.2);
       c.fill();
       break;
-    case 'batman-e': // humo
-      c.globalAlpha = 0.85;
-      for (const [x, y, k] of [[-0.4, 0.2, 0.45], [0.35, 0.15, 0.5], [0, -0.25, 0.55]]) {
-        circle(c, x * r, y * r, k * r);
-        c.fill();
-      }
+    case 'batman-e': // gancho: cuerda con un garfio
+      c.setLineDash([s * 0.06, s * 0.05]);
+      c.beginPath();
+      c.moveTo(-r, r);
+      c.lineTo(r * 0.15, -r * 0.15);
+      c.stroke();
+      c.setLineDash([]);
+      c.beginPath();
+      c.moveTo(-r * 0.05, r * 0.05);
+      c.lineTo(r * 0.55, -r * 0.55);
+      c.moveTo(r * 0.55, -r * 0.55);
+      c.quadraticCurveTo(r * 0.95, -r * 0.2, r * 0.75, r * 0.1);
+      c.moveTo(r * 0.55, -r * 0.55);
+      c.quadraticCurveTo(r * 0.2, -r * 0.95, -r * 0.1, -r * 0.75);
+      c.stroke();
       break;
     case 'hulk-q': // golpe al suelo
       circle(c, 0, 0, r * 0.3);

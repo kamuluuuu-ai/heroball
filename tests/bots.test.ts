@@ -5,10 +5,10 @@ import { HERO_IDS } from '../shared/config';
 import { IN } from '../shared/types';
 
 describe('estabilidad con bots', () => {
-  it('3v3 en modo Héroes durante un partido completo: sin NaN ni explosiones, termina', () => {
+  it.each(['heroes', 'super'] as const)('3v3 en modo %s durante un partido completo: sin NaN ni explosiones, termina', (mode) => {
     const ids = ['r0', 'r1', 'r2', 'b0', 'b1', 'b2'];
     const s = createGame({
-      mode: 'heroes', timeLimitMin: 3, scoreLimit: 0,
+      mode, timeLimitMin: 3, scoreLimit: 0,
       players: ids.map((id, i) => ({ id, team: id[0] === 'r' ? 'red' : 'blue', hero: HERO_IDS[i % 4] })),
     });
     let seed = 7;

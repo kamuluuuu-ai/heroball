@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { HEROES, HERO_IDS, type HeroId } from '../../../shared/config';
+import { HEROES, HERO_IDS, heroInfo, type HeroId } from '../../../shared/config';
+import type { GameMode } from '../../../shared/types';
 import { setAudio } from '../game/audio';
 import { drawHero, drawPowerIcon } from '../game/heroArt';
 import type { Prefs } from '../prefs';
@@ -38,8 +39,8 @@ function PowerIcon({ hero, slot }: { hero: HeroId; slot: 'q' | 'e' }) {
   return <canvas ref={ref} width={40} height={40} className="power-icon" />;
 }
 
-export function HeroPicker({ value, onChange, team, note }: { value: HeroId; onChange: (h: HeroId) => void; team?: 'red' | 'blue' | 'spec'; note?: string }) {
-  const h = HEROES[value];
+export function HeroPicker({ value, onChange, team, note, mode = 'heroes' }: { value: HeroId; onChange: (h: HeroId) => void; team?: 'red' | 'blue' | 'spec'; note?: string; mode?: GameMode }) {
+  const h = heroInfo(value, mode);
   return (
     <div className="hero-picker">
       <div className="hero-row">

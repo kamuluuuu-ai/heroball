@@ -965,6 +965,8 @@ function SecretAdmin({ d, reload }: { d: UserDetail; reload: () => void }) {
                   setReason('');
                   setPreview(null);
                   reload();
+                  // si fue a la propia cuenta, la colección de esta página tiene que verlo ya
+                  void account.refresh();
                 } catch (er) {
                   setMsg({ ok: false, text: errText(er) });
                 } finally {

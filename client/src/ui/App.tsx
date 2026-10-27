@@ -631,6 +631,10 @@ function RoomPanel({ room, prefs, setPrefs, onClose }: { room: RoomInfo; prefs: 
   const invite = `${location.origin}${location.pathname}?${n.specialServer ? 'especial' : 'sala'}=${room.id}`;
   const official = room.settings.official;
   const owned = acc.owned();
+  // sala de personajes especiales: colección al día (p. ej. si recién te asignaron uno)
+  useEffect(() => {
+    if (room.settings.specials) void acc.refresh();
+  }, [room.id, room.settings.specials]); // eslint-disable-line
   const o = acc.profile?.objectives;
   const col = (side: Side, title: string) => {
     const list = room.members.filter((m) => m.side === side);
@@ -675,6 +679,14 @@ function RoomPanel({ room, prefs, setPrefs, onClose }: { room: RoomInfo; prefs: 
         </div>
       ) : (
         <p className="muted small">Partida casual: cualquier héroe, con bots si querés. No da recompensas.{room.settings.specials ? ' Personajes especiales activados: quien tenga uno en su colección lo puede usar.' : ''}</p>
+      )}
+      {!official && room.settings.specials && room.settings.mode !== 'classic' && (
+        // por qué no aparece un personaje especial: el servidor sólo lo acepta con cuenta verificada y colección
+        !n.account
+          ? <p className="small error-text">En esta sala no estás con tu cuenta: entrá con tu cuenta y volvé a entrar a la sala para usar tus personajes especiales.</p>
+          : !SECRET_IDS.some((h) => owned.has(h))
+            ? <p className="small muted">Tu cuenta no tiene personajes especiales. Un administrador tiene que asignártelos (Admin → la cuenta → «Personaje secreto»).</p>
+            : null
       )}
       <div className="teams">
         {col('red', 'Rojo')}

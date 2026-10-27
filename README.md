@@ -289,7 +289,9 @@ Reglas comunes:
 **Thanos (secreto)**: no sale en cofres, catálogos públicos, contadores, bots ni en la colección de quien no lo
 tiene. Lo asigna o retira un administrador (motivo obligatorio y auditoría). El servidor valida la propiedad; sólo
 se usa en salas **casuales del servidor** con *Personajes especiales* activado, que no dan recompensas (la sala lo
-muestra) y nunca pueden ser oficiales ni P2P. Sin conexión (entrenamiento y bots) no está disponible porque no se
+muestra) y nunca pueden ser oficiales ni P2P. En la versión web (GitHub Pages, salas P2P), marcar *Personajes
+especiales* al crear la sala la abre en el servidor de cuentas (enlace `?especial=…`); las demás salas siguen en el
+navegador. Sin conexión (entrenamiento y bots) no está disponible porque no se
 puede comprobar la propiedad.
 
 ## Arquitectura

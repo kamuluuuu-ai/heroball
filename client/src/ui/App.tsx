@@ -21,8 +21,13 @@ function useNet() {
   return net;
 }
 
-function getInviteRoom(): string | null {
-  return new URLSearchParams(location.search).get('sala');
+/** Invitación: `sala` (P2P o servidor propio) o `especial` (sala de personajes especiales en el servidor, desde el build web). */
+function getInviteRoom(): { id: string; server: boolean } | null {
+  const q = new URLSearchParams(location.search);
+  const special = q.get('especial');
+  if (special) return { id: special, server: true };
+  const id = q.get('sala');
+  return id ? { id, server: false } : null;
 }
 
 type Tab = 'play' | 'heroes' | 'chests' | 'profile' | 'admin';
@@ -79,7 +84,7 @@ export function App() {
   useEffect(() => {
     if (screen.k === 'home' && nick && n.status === 'closed' && acc.status !== 'checking') {
       const invite = getInviteRoom();
-      n.connect(nick, invite ?? undefined);
+      n.connect(nick, invite?.id, invite?.server);
     }
   }, [screen.k, nick, n.status, acc.status]); // eslint-disable-line
 
@@ -101,8 +106,9 @@ export function App() {
   // la URL refleja la sala actual (enlace de invitación)
   useEffect(() => {
     const url = new URL(location.href);
-    if (n.room) url.searchParams.set('sala', n.room.id);
-    else url.searchParams.delete('sala');
+    url.searchParams.delete('sala');
+    url.searchParams.delete('especial');
+    if (n.room) url.searchParams.set(n.specialServer ? 'especial' : 'sala', n.room.id);
     history.replaceState(null, '', url);
   }, [n.room?.id]); // eslint-disable-line
 
@@ -341,9 +347,9 @@ function WebModeHelp() {
   const [code, setCode] = useState('');
   const join = () => {
     // acepta el enlace completo o sólo el código de sala
-    const m = code.trim().match(/[?&]sala=([a-z0-9]+)/i);
-    const id = (m ? m[1] : code.trim()).toLowerCase();
-    if (/^[a-z0-9]{4,16}$/.test(id)) n.connect(n.nick, id);
+    const m = code.trim().match(/[?&](sala|especial)=([a-z0-9]+)/i);
+    const id = (m ? m[2] : code.trim()).toLowerCase();
+    if (/^[a-z0-9]{4,16}$/.test(id)) n.connect(n.nick, id, m?.[1].toLowerCase() === 'especial');
   };
   return (
     <div className="empty web-help">
@@ -391,7 +397,9 @@ function CooldownsField({ mode, value, onChange, disabled }: { mode: GameMode; v
 
 function SettingsFields({ s, onChange, disabled, playing }: { s: RoomSettings; onChange: (p: Partial<RoomSettings>) => void; disabled?: boolean; playing?: boolean }) {
   const n = useNet();
-  const canOfficial = n.officialServer && !n.p2p && s.mode !== 'super' && s.cooldowns !== 'none' && !s.specials;
+  const canOfficial = n.officialServer && !n.p2p && !n.specialServer && s.mode !== 'super' && s.cooldowns !== 'none' && !s.specials;
+  // build web: «Personajes especiales» abre la sala en el servidor (sólo al crearla)
+  const webSpecials = n.p2p && n.canSpecialServer && !playing && !n.room;
   return (
     <div className="fields">
       <label>Modo
@@ -423,16 +431,17 @@ function SettingsFields({ s, onChange, disabled, playing }: { s: RoomSettings; o
       </label>
       {/* con el partido en curso sólo se puede cambiar esto: se aplica al reiniciar */}
       <CooldownsField mode={s.mode} value={s.cooldowns} disabled={disabled} onChange={(cooldowns) => onChange({ cooldowns, ...(cooldowns === 'none' && !playing ? { official: false } : {}) })} />
-      {n.officialServer && !n.p2p && (
+      {n.officialServer && !n.p2p && !n.specialServer && (
         <label className="check" title={canOfficial ? 'Cuenta para recompensas: sólo jugadores con cuenta, sin bots' : 'El modo Súper y las partidas sin cooldowns no pueden ser oficiales'}>
           <span><input type="checkbox" disabled={disabled || playing || !canOfficial} checked={s.official && canOfficial} onChange={(e) => onChange({ official: e.target.checked })} /> Oficial (recompensas)</span>
         </label>
       )}
-      {n.officialServer && !n.p2p && s.mode !== 'classic' && (
+      {((n.officialServer && !n.p2p) || webSpecials) && s.mode !== 'classic' && (
         <label className="check" title="Permite personajes especiales (Thanos) a quien los tenga en su colección. La sala queda casual y sin recompensas.">
-          <span><input type="checkbox" disabled={disabled || playing} checked={!!s.specials} onChange={(e) => onChange({ specials: e.target.checked, ...(e.target.checked ? { official: false } : {}) })} /> Personajes especiales (sin recompensas)</span>
+          <span><input type="checkbox" disabled={disabled || playing || n.specialServer} checked={!!s.specials} onChange={(e) => onChange({ specials: e.target.checked, ...(e.target.checked ? { official: false } : {}) })} /> Personajes especiales (sin recompensas)</span>
         </label>
       )}
+      {webSpecials && s.specials && <p className="muted small">La sala se crea en el servidor de HeroBall (no en tu navegador) para verificar quién tiene cada personaje especial. Hace falta entrar con tu cuenta para usarlos.</p>}
     </div>
   );
 }
@@ -610,7 +619,7 @@ function RoomPanel({ room, prefs, setPrefs, onClose }: { room: RoomInfo; prefs: 
   const isHost = room.hostId === n.id || n.isAdmin;
   const [copied, setCopied] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const invite = `${location.origin}${location.pathname}?sala=${room.id}`;
+  const invite = `${location.origin}${location.pathname}?${n.specialServer ? 'especial' : 'sala'}=${room.id}`;
   const official = room.settings.official;
   const owned = acc.owned();
   const o = acc.profile?.objectives;

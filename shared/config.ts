@@ -387,17 +387,17 @@ function newHeroes(P: PowerConfig): Record<Exclude<HeroId, 'spider' | 'batman' |
   return {
     hawkeye: {
       name: 'Hawkeye',
-      q: { name: 'Flecha de precisión', desc: `Flecha recta (${inR(P.hawkeye.arrow.range)}) que empuja la pelota. Sin seguimiento; la frena cualquier jugador.`, cooldown: P.hawkeye.arrow.cooldown },
+      q: { name: 'Flecha de precisión', desc: `Flecha recta (${inR(P.hawkeye.arrow.range)}) que apunta sola a la pelota y la empuja. La frena cualquier jugador.`, cooldown: P.hawkeye.arrow.cooldown },
       e: { name: 'Paso lateral', desc: `Desplazamiento de hasta ${inR(P.hawkeye.sidestep.distance)} hacia donde apuntás, chocando normalmente.`, cooldown: P.hawkeye.sidestep.cooldown },
     },
     widow: {
       name: 'Black Widow',
-      q: { name: 'Descarga', desc: `Proyectil (${inR(P.widow.shock.range)}): el primer rival alcanzado acelera ${pct(P.widow.shock.slowPct)} menos durante ${secs(P.widow.shock.slowTicks)}.`, cooldown: P.widow.shock.cooldown },
+      q: { name: 'Descarga', desc: `Proyectil (${inR(P.widow.shock.range)}) que apunta solo al rival más alineado: el primer rival alcanzado acelera ${pct(P.widow.shock.slowPct)} menos durante ${secs(P.widow.shock.slowTicks)}.`, cooldown: P.widow.shock.cooldown },
       e: { name: 'Evasión', desc: `Durante ${secs(P.widow.evade.ticks)} recibís ${pct(P.widow.evade.resist)} menos de empuje de poderes. Seguís chocando.`, cooldown: P.widow.evade.cooldown },
     },
     cap: {
       name: 'Capitán América',
-      q: { name: 'Escudo', desc: `Lanza el escudo (${inR(P.cap.shield.range)}): un solo impacto a la pelota y vuelve sin volver a golpear.`, cooldown: P.cap.shield.cooldown },
+      q: { name: 'Escudo', desc: `Lanza el escudo (${inR(P.cap.shield.range)}), que apunta solo a la pelota o a un rival: un solo impacto a la pelota y vuelve sin volver a golpear.`, cooldown: P.cap.shield.cooldown },
       e: { name: 'Guardia', desc: `Durante ${secs(P.cap.guard.ticks)} resistís ${pct(P.cap.guard.resist)} de los empujes de poderes, con ${pct(1 - P.cap.guard.accelMult)} menos aceleración.`, cooldown: P.cap.guard.cooldown },
     },
     panther: {
@@ -407,7 +407,7 @@ function newHeroes(P: PowerConfig): Record<Exclude<HeroId, 'spider' | 'batman' |
     },
     ironman: {
       name: 'Iron Man',
-      q: { name: 'Repulsor', desc: `Disparo recto (${inR(P.ironman.repulsor.range)}) que impulsa la pelota en la dirección del disparo. Sin autoapuntado.`, cooldown: P.ironman.repulsor.cooldown },
+      q: { name: 'Repulsor', desc: `Disparo recto (${inR(P.ironman.repulsor.range)}) que impulsa la pelota en la dirección del disparo. Apunta solo a la pelota.`, cooldown: P.ironman.repulsor.cooldown },
       e: { name: 'Propulsores', desc: `+${pct(P.ironman.thrusters.mult - 1)} aceleración y velocidad máxima durante ${secs(P.ironman.thrusters.ticks)}, girando peor.`, cooldown: P.ironman.thrusters.cooldown },
     },
     flash: {
@@ -417,7 +417,7 @@ function newHeroes(P: PowerConfig): Record<Exclude<HeroId, 'spider' | 'batman' |
     },
     thor: {
       name: 'Thor',
-      q: { name: 'Mjolnir', desc: `Martillo (${inR(P.thor.hammer.range)}) que empuja la pelota o al primer rival alcanzado.`, cooldown: P.thor.hammer.cooldown },
+      q: { name: 'Mjolnir', desc: `Martillo (${inR(P.thor.hammer.range)}) que apunta solo y empuja la pelota o al primer rival alcanzado.`, cooldown: P.thor.hammer.cooldown },
       e: { name: 'Trueno', desc: `Marca una zona de ${inR(P.thor.thunder.range)} delante durante ${secs(P.thor.thunder.delay)}; luego empuja todo lo que siga dentro.`, cooldown: P.thor.thunder.cooldown },
     },
     strange: {

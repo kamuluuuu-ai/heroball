@@ -564,7 +564,7 @@ export class Renderer {
       c.fill();
       c.restore();
     }
-    if (me.cdQ > 0 || (me.hero !== 'spider' && me.hero !== 'batman')) return;
+    if (me.cdQ > 0) return;
     const aim = autoAim(s, me);
     if (!aim) return;
     const t = aim.target;

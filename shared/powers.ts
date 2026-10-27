@@ -78,33 +78,48 @@ function lead(p: PlayerState, x: number, y: number, vx: number, vy: number, spee
   return [tx, ty];
 }
 
+/** Medio ángulo (grados) delante de la dirección apuntada donde los disparos buscan objetivo. */
+const AIM_CONE = 90;
+
 /**
- * Autoapuntado de la Q de Spider-Man (pelota; en Súper también rivales) y
- * Batman (pelota o rival). Devuelve el objetivo y la dirección de lanzamiento,
- * anticipando el movimiento del objetivo; null si no hay objetivo válido (se
- * usa la dirección apuntada).
+ * Qué busca el autoapuntado de cada Q que se dispara: sólo los objetivos a los
+ * que el proyectil les hace algo (la flecha y el repulsor empujan la pelota; la
+ * descarga atraviesa la pelota y frena rivales). null: la Q no se apunta.
+ */
+function aimSpec(P: PowerConfig, hero: PlayerState['hero']): { range: number; speed: number; cone: number; ball: boolean; rivals: boolean } | null {
+  switch (hero) {
+    case 'spider':
+      return P.spider.web.autoAim ? { ...P.spider.web, cone: 180, ball: true, rivals: P.spider.web.grabsRivals } : null;
+    case 'batman':
+      return P.batman.batarang.autoAim ? { ...P.batman.batarang, cone: P.batman.batarang.autoAimCone, ball: true, rivals: true } : null;
+    case 'hawkeye':
+      return { ...P.hawkeye.arrow, cone: AIM_CONE, ball: true, rivals: false };
+    case 'widow':
+      return { ...P.widow.shock, cone: AIM_CONE, ball: false, rivals: true };
+    case 'cap':
+      return { ...P.cap.shield, cone: AIM_CONE, ball: true, rivals: true };
+    case 'ironman':
+      return { ...P.ironman.repulsor, cone: AIM_CONE, ball: true, rivals: false };
+    case 'thor':
+      return { ...P.thor.hammer, cone: AIM_CONE, ball: true, rivals: true };
+    default:
+      return null;
+  }
+}
+
+/**
+ * Autoapuntado de las Q que se disparan (Spider-Man, Batman, Hawkeye, Black
+ * Widow, Capitán América, Iron Man y Thor). Devuelve el objetivo y la dirección
+ * de lanzamiento, anticipando el movimiento del objetivo; null si no hay
+ * objetivo válido (se usa la dirección apuntada).
  */
 export function autoAim(s: GameState, p: PlayerState): { target: AimTarget; dx: number; dy: number } | null {
-  const P = cfg(s);
-  let range: number;
-  let speed: number;
-  let cone: number;
-  let rivals: boolean;
-  if (p.hero === 'spider' && P.spider.web.autoAim) {
-    range = P.spider.web.range;
-    speed = P.spider.web.speed;
-    cone = 180;
-    rivals = P.spider.web.grabsRivals;
-  } else if (p.hero === 'batman' && P.batman.batarang.autoAim) {
-    range = P.batman.batarang.range;
-    speed = P.batman.batarang.speed;
-    cone = P.batman.batarang.autoAimCone;
-    rivals = true;
-  } else return null;
+  const spec = aimSpec(cfg(s), p.hero);
+  if (!spec) return null;
+  const { range, speed, cone, rivals } = spec;
 
-  const cands: { t: AimTarget; vx: number; vy: number; r: number }[] = [
-    { t: { kind: 'ball', id: null, x: s.ball.x, y: s.ball.y }, vx: s.ball.vx, vy: s.ball.vy, r: s.ball.r },
-  ];
+  const cands: { t: AimTarget; vx: number; vy: number; r: number }[] = [];
+  if (spec.ball) cands.push({ t: { kind: 'ball', id: null, x: s.ball.x, y: s.ball.y }, vx: s.ball.vx, vy: s.ball.vy, r: s.ball.r });
   if (rivals) {
     for (const o of s.players) {
       if (o.team !== p.team) cands.push({ t: { kind: 'player', id: o.id, x: o.d.x, y: o.d.y }, vx: o.d.vx, vy: o.d.vy, r: o.d.r });

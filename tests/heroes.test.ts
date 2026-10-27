@@ -90,19 +90,26 @@ describe('catálogo', () => {
 });
 
 describe('Hawkeye', () => {
-  it('Flecha: empuja la pelota en la dirección del disparo, sin seguimiento', () => {
+  it('Flecha: empuja la pelota en la dirección del disparo y se apunta sola', () => {
     const s = game([{ id: 'a', team: 'red', hero: 'hawkeye' }]);
     place(s, 'a', -200, 0);
     ball(s, -100, 0);
     cast(s, 'a', 'q', 20);
     expect(s.ball.vx).toBeGreaterThan(1);
     expect(Math.abs(s.ball.vy)).toBeLessThan(1e-9);
-    // sin seguimiento: con la pelota fuera de la línea no la toca
+    // autoapuntado: con la pelota fuera de la línea igual la alcanza
     const t = game([{ id: 'a', team: 'red', hero: 'hawkeye' }]);
     place(t, 'a', -200, 0);
     ball(t, -100, 40);
     cast(t, 'a', 'q', 20);
-    expect(t.ball.vx).toBe(0);
+    expect(t.ball.vx).toBeGreaterThan(1);
+    expect(t.ball.vy).toBeGreaterThan(0);
+    // pero no apunta hacia atrás
+    const u = game([{ id: 'a', team: 'red', hero: 'hawkeye' }]);
+    place(u, 'a', -200, 0);
+    ball(u, -300, 0);
+    cast(u, 'a', 'q', 20);
+    expect(u.ball.vx).toBe(0);
   });
 
   it('Flecha: alcance 10R y la frena cualquier jugador (también un aliado)', () => {
@@ -159,6 +166,18 @@ describe('Black Widow', () => {
     // dura 0,7 s
     for (let i = 0; i < 45; i++) tick(s);
     expect(b.slowPct).toBe(0);
+  });
+
+  it('Descarga: se apunta sola al rival, no a la pelota', () => {
+    const s = game([
+      { id: 'a', team: 'red', hero: 'widow' },
+      { id: 'b', team: 'blue', hero: 'hulk' },
+    ]);
+    place(s, 'a', -200, 0);
+    ball(s, -150, 0);
+    const b = place(s, 'b', -140, 50);
+    cast(s, 'a', 'q', 12);
+    expect(b.slowPct).toBe(0.2);
   });
 
   it('Evasión: reduce a la mitad el empuje de un poder; las colisiones siguen', () => {
@@ -243,7 +262,7 @@ describe('Black Panther', () => {
 });
 
 describe('Iron Man', () => {
-  it('Repulsor: impulsa la pelota en la dirección del disparo (sin autoapuntado)', () => {
+  it('Repulsor: impulsa la pelota en la dirección del disparo y se apunta solo', () => {
     const s = game([{ id: 'a', team: 'red', hero: 'ironman' }]);
     place(s, 'a', -200, 0, Math.SQRT1_2, Math.SQRT1_2);
     ball(s, -200 + 70, 70);
@@ -253,7 +272,8 @@ describe('Iron Man', () => {
     place(t, 'a', -200, 0);
     ball(t, -120, 30);
     cast(t, 'a', 'q', 20);
-    expect(t.ball.vx).toBe(0);
+    expect(t.ball.vx).toBeGreaterThan(1);
+    expect(t.ball.vy).toBeGreaterThan(0);
   });
 
   it('Propulsores: +30 % de velocidad máxima y gira peor', () => {

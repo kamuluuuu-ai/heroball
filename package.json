@@ -4,6 +4,9 @@
   "private": true,
   "license": "MIT",
   "type": "module",
+  "engines": {
+    "node": ">=22.9"
+  },
   "description": "HeroBall: fútbol 2D multijugador con superpoderes (proyecto independiente, inspirado en HaxBall)",
   "scripts": {
     "dev": "concurrently -k -n server,client -c red,blue \"node --env-file-if-exists=.env --import tsx --watch server/index.ts\" \"vite\"",

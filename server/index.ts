@@ -47,7 +47,8 @@ let identify: ((token: string) => Promise<AccountInfo | null>) | undefined;
 if (env.DATABASE_URL) {
   const secret = env.BETTER_AUTH_SECRET ?? '';
   if (secret.length < 32) fail('BETTER_AUTH_SECRET debe tener al menos 32 caracteres aleatorios.');
-  const baseURL = env.PUBLIC_API_URL ?? `http://localhost:${PORT}`;
+  // en Render, RENDER_EXTERNAL_URL trae la URL pública del servicio
+  const baseURL = env.PUBLIC_API_URL || env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
   const db = createPool(env.DATABASE_URL);
   if (env.MIGRATE_ON_START !== '0') await migrate(db, undefined, console.log);
   const mailer = createMailer(env.SMTP_URL, env.MAIL_FROM ?? 'HeroBall <no-reply@localhost>');
@@ -89,7 +90,7 @@ const http = createServer(async (req, res) => {
   }
   if (!existsSync(ROOT)) {
     res.writeHead(503, { 'content-type': 'text/plain; charset=utf-8' });
-    res.end('Falta compilar el cliente: ejecutá "npm run build" (o usá "npm run dev" y abrí http://localhost:5173).');
+    res.end('Servidor de HeroBall: API en /api y salas en /ws. Para servir también el juego desde acá, compilá el cliente con "npm run build" (en local: "npm run dev" y abrí http://localhost:5173).');
     return;
   }
   let file = normalize(join(ROOT, decodeURIComponent(url.pathname)));

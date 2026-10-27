@@ -1,0 +1,34 @@
+# Blueprint de Render para el backend de HeroBall (API de cuentas/economía + WebSocket).
+# El juego (frontend) sigue en GitHub Pages; la base de datos es PostgreSQL externo (Neon).
+# Render → New → Blueprint → elegir este repositorio. Ver README, sección «Desplegar».
+services:
+  - type: web
+    name: heroball-api
+    runtime: node
+    plan: free
+    region: oregon
+    branch: main
+    # sin dependencias de desarrollo: el servidor corre TypeScript con tsx y no necesita compilar el cliente
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # cadena de conexión de Neon SIN pooling (las migraciones usan un bloqueo de sesión)
+      - key: DATABASE_URL
+        sync: false
+      - key: BETTER_AUTH_SECRET
+        generateValue: true
+      - key: CORS_ORIGINS
+        value: https://kamuluuuu-ai.github.io
+      - key: MIGRATE_ON_START
+        value: "1"
+      # opcionales: recuperación de contraseña por correo y moderación en salas P2P
+      - key: SMTP_URL
+        sync: false
+      - key: MAIL_FROM
+        value: HeroBall <no-reply@example.com>
+      - key: MODERATOR_SIGNING_KEY
+        sync: false

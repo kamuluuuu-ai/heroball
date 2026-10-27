@@ -64,8 +64,21 @@ npm run admin:role -- --email persona@ejemplo.com --role moderator --remove
 
 ### Backend (Node + PostgreSQL)
 
-Sirve cualquier hosting de Node con HTTPS (VPS, Render, Railway, Fly.io…) y un PostgreSQL gestionado (Neon,
-Supabase, Railway…). Pasos:
+**Render + Neon (gratis, configurado en `render.yaml`):**
+
+1. [Neon](https://neon.tech): crear un proyecto (región cercana a Oregon, p. ej. *US West*) y copiar la cadena de
+   conexión **con «Connection pooling» desactivado** (`postgresql://…neon.tech/neondb?sslmode=require`).
+2. [Render](https://render.com): *New → Blueprint*, elegir este repositorio. Pide `DATABASE_URL` (pegar la de Neon);
+   `SMTP_URL` y `MODERATOR_SIGNING_KEY` se pueden dejar vacías. `BETTER_AUTH_SECRET` se genera solo y la URL
+   pública se toma de `RENDER_EXTERNAL_URL`. Las migraciones se aplican al arrancar.
+3. Comprobar `https://heroball-api.onrender.com/api/health` (o la URL que asigne Render) → `"economy":true`.
+4. Conectar el frontend (abajo) y crear el administrador: registrarse en el juego y, en local, con la cadena de Neon
+   en `.env` como `DATABASE_URL`: `npm run admin:role -- --email … --role economy_admin`.
+
+En el plan gratuito, Render duerme el servicio tras 15 minutos sin uso; la primera visita después tarda cerca de un
+minuto y las salas abiertas se pierden (cuentas y saldos quedan en Neon).
+
+**Cualquier otro hosting** de Node con HTTPS (VPS, Railway, Fly.io…) y PostgreSQL gestionado. Pasos:
 
 1. Variables de entorno (ver `.env.example`): `DATABASE_URL`, `BETTER_AUTH_SECRET`, `PUBLIC_API_URL`
    (la URL HTTPS del backend), `CORS_ORIGINS=https://kamuluuuu-ai.github.io`, `SMTP_URL` y `MAIL_FROM`

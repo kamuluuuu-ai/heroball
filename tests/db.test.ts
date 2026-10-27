@@ -293,7 +293,7 @@ describe('administración', () => {
     expect(detail.body.ledger[0]).toMatchObject({ kind: 'admin_correction', coins_delta: -100, actor_name: expect.any(String) });
   });
 
-  it('cantidades inválidas, motivo vacío, autoentrega y límites: rechazados', async () => {
+  it('cantidades inválidas, motivo vacío, límites: rechazados (la autoentrega de un admin sí se permite)', async () => {
     const admin = await signUp('Admin');
     await setRole(db, admin.email, 'economy_admin', true, 'test');
     const t = await signUp();
@@ -306,7 +306,7 @@ describe('administración', () => {
     expect(await bad({ standard: 11 })).toBe(400);
     expect(await bad({})).toBe(400);
     expect(await bad({ coins: 5, reason: '' })).toBe(400);
-    expect(await bad({ coins: 5, userId: admin.id })).toBe(403);
+    expect(await bad({ coins: 5, userId: admin.id })).toBe(200);
     // corregir más de lo que tiene: rechazado por la base, sin cambios
     const led = await db.query('SELECT id FROM ledger WHERE user_id = $1 LIMIT 1', [t.id]);
     const over = await call('POST', '/api/admin/correct', { userId: t.id, coins: 5000, reason: 'corrección excesiva', corrects: Number(led.rows[0].id), key: key() }, admin.token);

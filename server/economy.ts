@@ -404,7 +404,6 @@ export class Economy {
     await this.requireRole(actor, 'economy_admin');
     const userId = body.userId;
     if (typeof userId !== 'string' || userId.length > 64) throw new EconomyError('bad_user', 'Usuario inválido.');
-    if (userId === actor) throw new EconomyError('self', 'No podés entregarte recursos a vos mismo.', 403);
     const reason = typeof body.reason === 'string' ? body.reason.replace(/[\u0000-\u001f\u007f]/g, '').trim() : '';
     if (reason.length < 5 || reason.length > 200) throw new EconomyError('bad_reason', 'El motivo es obligatorio (5 a 200 caracteres).');
     const amount = (v: unknown, max: number, label: string): number => {

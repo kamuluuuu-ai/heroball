@@ -820,7 +820,8 @@ function UserAdmin({ d, reload, self }: { d: UserDetail; reload: () => void; sel
         <span>Héroes</span><span>{d.heroes.length ? d.heroes.map((h) => HEROES[h.hero]?.name ?? h.hero).join(', ') : 'sólo iniciales'}</span>
         {d.roles.length > 0 && <><span>Roles</span><span>{d.roles.join(', ')}</span></>}
       </div>
-      {self ? <p className="muted small">No podés entregarte recursos a vos mismo.</p> : (
+      {self && <p className="muted small">Es tu propia cuenta: la entrega queda en el registro a tu nombre.</p>}
+      {(
         <form
           className="grant"
           onSubmit={async (e) => {
@@ -886,7 +887,7 @@ function UserAdmin({ d, reload, self }: { d: UserDetail; reload: () => void; sel
       )}
       {msg && <div className={msg.ok ? 'ok-text' : 'error'} role="status">{msg.text}</div>}
       <h3>Movimientos</h3>
-      {d.ledger.length ? <LedgerTable rows={d.ledger} onCorrect={self ? undefined : startCorrection} /> : <p className="muted">Sin movimientos.</p>}
+      {d.ledger.length ? <LedgerTable rows={d.ledger} onCorrect={startCorrection} /> : <p className="muted">Sin movimientos.</p>}
       {d.openings.length > 0 && (<><h3>Aperturas</h3><OpeningList rows={d.openings} /></>)}
     </div>
   );

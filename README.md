@@ -169,7 +169,7 @@ Capturas reales tomadas del servidor local con PostgreSQL embebido y cuentas de 
   aperturas.
 - Entregar HeroCoins y cofres estándar/élite con **motivo obligatorio** (5 a 200 caracteres), dentro de los límites
   por operación. *Revisar* muestra destinatario, id, cantidades y saldo antes/después; *Confirmar* usa una clave
-  fijada al revisar (un doble clic no entrega dos veces). Nadie puede entregarse recursos a sí mismo.
+  fijada al revisar (un doble clic no entrega dos veces). Un administrador puede entregarse recursos a sí mismo; queda en el registro con su id.
 - Correcciones: sólo como movimiento compensatorio que referencia al original (*Corregir* en una entrega). Nada se
   edita ni se borra.
 - El destinatario ve un aviso la próxima vez que entra, aunque estuviera desconectado.

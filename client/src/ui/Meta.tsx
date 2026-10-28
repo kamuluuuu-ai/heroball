@@ -69,7 +69,7 @@ function noticeText(n: Notice): string {
   }
   if (n.kind === 'grant') return `Recibiste ${amounts()}. Motivo: ${p.reason}.`;
   if (n.kind === 'correction') return `Corrección de saldo: ${amounts()}. Motivo: ${p.reason}.`;
-  if (n.kind === 'hero_grant') return `Recibiste un personaje especial: ${HEROES[p.hero as HeroId]?.name ?? p.hero}. Sólo se usa en salas casuales con «Personajes especiales» (sin recompensas). Motivo: ${p.reason}.`;
+  if (n.kind === 'hero_grant') return `Recibiste un personaje especial: ${HEROES[p.hero as HeroId]?.name ?? p.hero}. Lo podés usar en todos los modos. Motivo: ${p.reason}.`;
   if (n.kind === 'hero_revoke') return `Se retiró el personaje especial ${HEROES[p.hero as HeroId]?.name ?? p.hero} de tu colección. Motivo: ${p.reason}.`;
   return 'Aviso nuevo.';
 }
@@ -357,7 +357,7 @@ export function Collection({ selected, onEquip, onTry, onChests }: {
         <p className="small">
           <b>Cómo se consigue: </b>
           {secret
-            ? 'Personaje especial: no sale en cofres ni se desbloquea con Fragmentos; lo asigna un administrador. Sólo se usa en salas casuales con «Personajes especiales» activado, sin recompensas.'
+            ? 'Personaje especial: no sale en cofres ni se desbloquea con Fragmentos; lo asigna un administrador. Se usa en todos los modos: entrenamiento, bots y salas.'
             : c.starter
               ? 'Héroe inicial: gratis para todos.'
               : `Sale en cofres (${RARITY_LABEL[c.rarity].toLowerCase()}: ${pct(ECONOMY.chests.standard.odds[c.rarity] / pool)} por cofre estándar, ${pct(ECONOMY.chests.elite.odds[c.rarity] / pool)} por cofre élite). También se desbloquea con ${cost} Fragmentos, que dan los héroes repetidos.`}
@@ -921,7 +921,7 @@ function SecretAdmin({ d, reload }: { d: UserDetail; reload: () => void }) {
     <div className="secret-admin">
       <h3>Personaje secreto: {HEROES[hero].name}</h3>
       <p className="muted small">
-        {has ? `${d.user.name} lo tiene.` : `${d.user.name} no lo tiene.`} No sale en cofres ni cuenta en la colección pública; sólo se usa en salas casuales con «Personajes especiales», sin recompensas.
+        {has ? `${d.user.name} lo tiene.` : `${d.user.name} no lo tiene.`} No sale en cofres ni cuenta en la colección pública; quien lo tiene lo usa en todos los modos.
       </p>
       <form
         className="grant"

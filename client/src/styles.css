@@ -446,7 +446,6 @@ form.inline { display: flex; flex-direction: row; flex-wrap: wrap; align-items: 
 .tag { display: inline-block; font-size: 11px; font-weight: 600; background: #3a454c; color: #e8eef1; padding: 1px 6px; border-radius: 3px; }
 .tag.official { background: #7a5a12; color: #fff1c4; }
 .tag.nocd { background: #2f5d7a; color: #dff3ff; margin-left: 4px; }
-.tag.specials { background: #4b2a6b; color: #f0dcff; margin-left: 4px; }
 .tag.ok { background: #2f5a2f; }
 .tag.lock { background: #4a3535; }
 .notices { width: min(900px, 100%); display: flex; flex-direction: column; gap: 4px; }

@@ -89,7 +89,8 @@ minuto y las salas abiertas se pierden (cuentas y saldos quedan en Neon).
 
 `MODERATOR_SIGNING_KEY` es la clave **privada** (PKCS#8 base64) que corresponde a la clave pública de
 `shared/admin.ts`. Sólo vive en el servidor: con ella el backend firma el desafío de una sala P2P para una cuenta
-con rol `moderator`. Si ya tenías la clave del administrador anterior, va acá; para generar otra:
+con rol `moderator` y, para cualquier cuenta, la lista de sus personajes secretos (Thanos) que presenta al
+anfitrión P2P. Sin esta variable Thanos funciona sin conexión y en salas del servidor, pero no en salas P2P. Si ya tenías la clave del administrador anterior, va acá; para generar otra:
 `npm run admin:keygen` y publicar la pública nueva en `shared/admin.ts`.
 
 ### Frontend (GitHub Pages)
@@ -245,7 +246,7 @@ frecuencia en cofres, no el poder. Tabla generada desde `shared/config.ts` con `
 | Doctor Strange | Legendario · Control | **Rebobinar**: Pelota a menos de 12R: vuelve a la posición y velocidad de hace 1,5 s (sólo de esta jugada). No cambia jugadores, marcador ni reloj. CD 12 s | **Portal al arco**: Tras 0,35 s de canalización aparecés delante del arco de la mitad donde estás. Un aturdimiento lo interrumpe. CD 14 s |
 | Baldi | Legendario · Control | **Regla de detención**: Regla (12R) que apunta sola a la pelota: la deja quieta una vez, sin congelarla. No afecta jugadores. CD 9 s | **Quiz matemático**: Al rival más alineado delante tuyo (10R): tras 0,4 s recibe una cuenta (suma o resta) y no puede jugar hasta responder bien (máximo 2,5 s). Sin objetivo no gasta la recarga. CD 35 s |
 
-**Thanos** (secreto, sólo salas casuales con personajes especiales). Q: Activa la gema seleccionada (teclas 1–5 para elegir). E: Pasa a la siguiente gema.
+**Thanos** (secreto, en todos los modos para quien lo tenga asignado). Q: Activa la gema seleccionada (teclas 1–5 para elegir). E: Pasa a la siguiente gema.
 
 | Tecla | Gema | Efecto | CD |
 |---|---|---|---|
@@ -287,12 +288,13 @@ Reglas comunes:
   cuenta durante el partido).
 
 **Thanos (secreto)**: no sale en cofres, catálogos públicos, contadores, bots ni en la colección de quien no lo
-tiene. Lo asigna o retira un administrador (motivo obligatorio y auditoría). El servidor valida la propiedad; sólo
-se usa en salas **casuales del servidor** con *Personajes especiales* activado, que no dan recompensas (la sala lo
-muestra) y nunca pueden ser oficiales ni P2P. En la versión web (GitHub Pages, salas P2P), marcar *Personajes
-especiales* al crear la sala la abre en el servidor de cuentas (enlace `?especial=…`); las demás salas siguen en el
-navegador. Sin conexión (entrenamiento y bots) no está disponible porque no se
-puede comprobar la propiedad.
+tiene. Lo asigna o retira un administrador (motivo obligatorio y auditoría). Quien lo tiene lo usa en **todos los
+modos**: entrenamiento, contra bots, salas P2P y salas del servidor (casuales u oficiales, con las recompensas
+normales). La propiedad nunca sale del navegador: sin conexión se usa la colección que devuelve el servidor; en el
+servidor se lee de la base de datos en cada cambio; en una sala P2P el servidor firma (con `MODERATOR_SIGNING_KEY`)
+la lista de secretos de la cuenta para el desafío de esa conexión y el anfitrión verifica la firma con la clave
+pública. Esa firma no sirve en otra conexión ni como permiso de moderador. Un retiro vale en salas del servidor en el
+próximo saque; en una sala P2P, a partir de la próxima conexión.
 
 ## Arquitectura
 
@@ -336,7 +338,7 @@ dibuja radios, alcance de patada y posiciones de red.
 ## Cambios (ordenados por importancia)
 
 0. **Seis personajes nuevos**: Homero, CJ, Baldi, Ibai y Verity (en cofres, composición versión 2) y Thanos
-   (secreto, asignado por administración, sólo salas casuales con personajes especiales); autoapuntado compartido
+   (secreto, asignado por administración, en todos los modos para quien lo tenga); autoapuntado compartido
    para todos los poderes que se lanzan, controles incapacitantes con tope de 1 s e inmunidad, retratos propios.
 1. **Remodelación de habilidades** (sin tocar Spider-Man ni Batman): láser de Superman, flecha explosiva, dash de
    Black Widow, escudo encadenado y protección de la pelota del Capitán, repulsor y misil de Iron Man, Flash más
@@ -361,18 +363,19 @@ dibuja radios, alcance de patada y posiciones de red.
 ## Pruebas
 
 ```bash
-npm test          # 258 pruebas (incluye PostgreSQL embebido real en tests/db.test.ts)
+npm test          # 262 pruebas (incluye PostgreSQL embebido real en tests/db.test.ts)
 npm run typecheck
 ```
 
-Última ejecución: 15 archivos, 258 pruebas, todas pasan. `tests/render.test.ts` dibuja partidas con todos los efectos nuevos sobre un canvas simulado. `tests/newheroes.test.ts` cubre los seis personajes
+Última ejecución: 15 archivos, 262 pruebas, todas pasan. `tests/render.test.ts` dibuja partidas con todos los efectos nuevos sobre un canvas simulado. `tests/newheroes.test.ts` cubre los seis personajes
 nuevos en Héroes y Súper, el autoapuntado (pelota, rivales, aliados, pelota protegida, poste, fuera de alcance,
 punto de caída de la TNT), las tres balas y la recarga de CJ, rosquilla, charco, crecimiento sin superposición,
 quiz (respuesta, error, tiempo, inmunidad, bots), TNT al reiniciar y al desconectarse, historial que no cruza
 jugadas, ilusión sin efecto físico, Gema del Espacio sin superposición, Gema de la Mente con tope y
 determinismo. En `tests/db.test.ts`: asignación y retiro de Thanos (permisos, motivo, vista previa, duplicados,
-auditoría inmodificable, avisos), sin desbloqueo ni cofres, y salas que lo rechazan sin especiales, sin propiedad
-o en P2P. `tests/rework.test.ts` cubre cada habilidad remodelada en
+auditoría inmodificable, avisos), sin desbloqueo ni cofres, y salas del servidor (casual y oficial) que lo aceptan
+sólo para la cuenta dueña. En `tests/admin.test.ts`: la firma de secretos en salas P2P (válida sólo para esa clave,
+conexión y lista; nunca como permiso de moderador). `tests/rework.test.ts` cubre cada habilidad remodelada en
 Héroes y Súper (impulso efectivo igual al configurado, radio y ancho reales), dash y carrera sin atravesar, escudo
 sin bucles y con elección determinista, protección contra todos los poderes, misil con sorteo único y el mismo
 resultado en dos clientes en red, electricidad una vez por jugador, aturdimiento e inmunidad, rebobinar (inicio,

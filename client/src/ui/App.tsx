@@ -21,13 +21,8 @@ function useNet() {
   return net;
 }
 
-/** Invitación: `sala` (P2P o servidor propio) o `especial` (sala de personajes especiales en el servidor, desde el build web). */
-function getInviteRoom(): { id: string; server: boolean } | null {
-  const q = new URLSearchParams(location.search);
-  const special = q.get('especial');
-  if (special) return { id: special, server: true };
-  const id = q.get('sala');
-  return id ? { id, server: false } : null;
+function getInviteRoom(): string | null {
+  return new URLSearchParams(location.search).get('sala');
 }
 
 type Tab = 'play' | 'heroes' | 'chests' | 'profile' | 'admin';
@@ -84,7 +79,7 @@ export function App() {
   useEffect(() => {
     if (screen.k === 'home' && nick && n.status === 'closed' && acc.status !== 'checking') {
       const invite = getInviteRoom();
-      n.connect(nick, invite?.id, invite?.server);
+      n.connect(nick, invite ?? undefined);
     }
   }, [screen.k, nick, n.status, acc.status]); // eslint-disable-line
 
@@ -96,6 +91,7 @@ export function App() {
     if (lastUser.current !== undefined && lastUser.current !== userId) n.reconnect();
     lastUser.current = userId;
     n.proveModerator();
+    n.proveHeroes();
   }, [userId, acc.status]); // eslint-disable-line
 
   useEffect(() => {
@@ -106,9 +102,8 @@ export function App() {
   // la URL refleja la sala actual (enlace de invitación)
   useEffect(() => {
     const url = new URL(location.href);
-    url.searchParams.delete('sala');
-    url.searchParams.delete('especial');
-    if (n.room) url.searchParams.set(n.specialServer ? 'especial' : 'sala', n.room.id);
+    if (n.room) url.searchParams.set('sala', n.room.id);
+    else url.searchParams.delete('sala');
     history.replaceState(null, '', url);
   }, [n.room?.id]); // eslint-disable-line
 
@@ -255,7 +250,7 @@ function PlayTab({ prefs, setPrefs, nick, onOffline, onLogin, onHeroes }: {
 }) {
   const n = useNet();
   const acc = useAccount();
-  const [creating, setCreating] = useState<false | 'normal' | 'specials'>(false);
+  const [creating, setCreating] = useState(false);
   const [offline, setOffline] = useState<null | 'training' | 'bots'>(null);
   const [showSettings, setShowSettings] = useState(false);
 
@@ -264,8 +259,7 @@ function PlayTab({ prefs, setPrefs, nick, onOffline, onLogin, onHeroes }: {
     return () => window.clearInterval(t);
   }, [n]);
 
-  if (creating) return <CreateRoom onCancel={() => setCreating(false)} nick={nick} specials={creating === 'specials'} />;
-  const specialsAvailable = n.canSpecialServer || (n.officialServer && !n.p2p);
+  if (creating) return <CreateRoom onCancel={() => setCreating(false)} nick={nick} />;
   if (offline) return <OfflineSetup kind={offline} prefs={prefs} setPrefs={setPrefs} onCancel={() => setOffline(null)} onStart={onOffline} />;
 
   const signed = acc.status === 'signed';
@@ -291,16 +285,8 @@ function PlayTab({ prefs, setPrefs, nick, onOffline, onLogin, onHeroes }: {
         <div className="play-card">
           <b>Multijugador</b>
           <span className="small muted">{n.p2p ? 'Sala alojada en tu navegador; invitá con un enlace. Siempre casual.' : 'Salas en el servidor. Las oficiales dan recompensas a cuentas.'}</span>
-          <button className="primary" onClick={() => setCreating('normal')} disabled={n.status !== 'open' || !nick}>Crear sala</button>
+          <button className="primary" onClick={() => setCreating(true)} disabled={n.status !== 'open' || !nick}>Crear sala</button>
         </div>
-        {specialsAvailable && (
-          <div className="play-card">
-            <b>Personajes especiales</b>
-            <span className="small muted">Sala en el servidor donde quien tenga un personaje especial (como Thanos) lo puede usar. Casual, sin recompensas.</span>
-            <button className="primary" onClick={() => setCreating('specials')} disabled={n.status !== 'open' || !nick}>Crear sala especial</button>
-            {acc.status !== 'signed' && <span className="small muted">Entrá con tu cuenta para usar tus personajes especiales.</span>}
-          </div>
-        )}
       </div>
       <details className="modes">
         <summary>¿Qué son los modos Héroes, Súper y Clásico?</summary>
@@ -333,7 +319,7 @@ function PlayTab({ prefs, setPrefs, nick, onOffline, onLogin, onHeroes }: {
                 <button key={r.id} className="room-row" onClick={() => n.send({ t: 'join', room: r.id })} aria-label={`Entrar a ${r.name}`}>
                   <span className="rname">{r.name}</span>
                   <span>{r.players}/{r.maxPlayers}</span>
-                  <span>{MODE_LABEL[r.mode]} {r.teamSize}v{r.teamSize}{r.cooldowns === 'none' && r.mode !== 'classic' ? ' · sin cooldowns' : ''}{r.specials ? ' · personajes especiales' : ''}{r.playing ? ' · en juego' : ''}</span>
+                  <span>{MODE_LABEL[r.mode]} {r.teamSize}v{r.teamSize}{r.cooldowns === 'none' && r.mode !== 'classic' ? ' · sin cooldowns' : ''}{r.playing ? ' · en juego' : ''}</span>
                   <span>{r.official ? <span className="tag official">Oficial</span> : <span className="tag">Casual</span>}</span>
                 </button>
               ))}
@@ -356,9 +342,9 @@ function WebModeHelp() {
   const [code, setCode] = useState('');
   const join = () => {
     // acepta el enlace completo o sólo el código de sala
-    const m = code.trim().match(/[?&](sala|especial)=([a-z0-9]+)/i);
-    const id = (m ? m[2] : code.trim()).toLowerCase();
-    if (/^[a-z0-9]{4,16}$/.test(id)) n.connect(n.nick, id, m?.[1].toLowerCase() === 'especial');
+    const m = code.trim().match(/[?&]sala=([a-z0-9]+)/i);
+    const id = (m ? m[1] : code.trim()).toLowerCase();
+    if (/^[a-z0-9]{4,16}$/.test(id)) n.connect(n.nick, id);
   };
   return (
     <div className="empty web-help">
@@ -381,11 +367,6 @@ function ConnBadge() {
 }
 
 /** Etiqueta visible de partidas sin cooldowns (en sala y en partido). */
-/** Sala con personajes especiales: casual y sin recompensas, a la vista de todos. */
-function SpecialsTag({ on }: { on: boolean }) {
-  return on ? <span className="tag specials" title="Se permiten personajes especiales (Thanos). No da recompensas.">Personajes especiales: sin recompensas</span> : null;
-}
-
 function NoCdTag({ on }: { on: boolean }) {
   return on ? <span className="tag nocd" title="Sin espera de recarga. Partida casual: sin recompensas ni clasificación.">Sin cooldowns</span> : null;
 }
@@ -406,9 +387,7 @@ function CooldownsField({ mode, value, onChange, disabled }: { mode: GameMode; v
 
 function SettingsFields({ s, onChange, disabled, playing }: { s: RoomSettings; onChange: (p: Partial<RoomSettings>) => void; disabled?: boolean; playing?: boolean }) {
   const n = useNet();
-  const canOfficial = n.officialServer && !n.p2p && !n.specialServer && s.mode !== 'super' && s.cooldowns !== 'none' && !s.specials;
-  // build web: «Personajes especiales» abre la sala en el servidor (sólo al crearla)
-  const webSpecials = n.p2p && n.canSpecialServer && !playing && !n.room;
+  const canOfficial = n.officialServer && !n.p2p && s.mode !== 'super' && s.cooldowns !== 'none';
   return (
     <div className="fields">
       <label>Modo
@@ -440,25 +419,19 @@ function SettingsFields({ s, onChange, disabled, playing }: { s: RoomSettings; o
       </label>
       {/* con el partido en curso sólo se puede cambiar esto: se aplica al reiniciar */}
       <CooldownsField mode={s.mode} value={s.cooldowns} disabled={disabled} onChange={(cooldowns) => onChange({ cooldowns, ...(cooldowns === 'none' && !playing ? { official: false } : {}) })} />
-      {n.officialServer && !n.p2p && !n.specialServer && (
+      {n.officialServer && !n.p2p && (
         <label className="check" title={canOfficial ? 'Cuenta para recompensas: sólo jugadores con cuenta, sin bots' : 'El modo Súper y las partidas sin cooldowns no pueden ser oficiales'}>
           <span><input type="checkbox" disabled={disabled || playing || !canOfficial} checked={s.official && canOfficial} onChange={(e) => onChange({ official: e.target.checked })} /> Oficial (recompensas)</span>
         </label>
       )}
-      {((n.officialServer && !n.p2p) || webSpecials) && s.mode !== 'classic' && (
-        <label className="check" title="Permite personajes especiales (Thanos) a quien los tenga en su colección. La sala queda casual y sin recompensas.">
-          <span><input type="checkbox" disabled={disabled || playing || n.specialServer} checked={!!s.specials} onChange={(e) => onChange({ specials: e.target.checked, ...(e.target.checked ? { official: false } : {}) })} /> Personajes especiales (sin recompensas)</span>
-        </label>
-      )}
-      {webSpecials && s.specials && <p className="muted small">La sala se crea en el servidor de HeroBall (no en tu navegador) para verificar quién tiene cada personaje especial. Hace falta entrar con tu cuenta para usarlos.</p>}
     </div>
   );
 }
 
-function CreateRoom({ onCancel, nick, specials = false }: { onCancel: () => void; nick: string; specials?: boolean }) {
+function CreateRoom({ onCancel, nick }: { onCancel: () => void; nick: string }) {
   const n = useNet();
-  const [name, setName] = useState(specials ? `Sala especial de ${nick}` : `Sala de ${nick}`);
-  const [s, setS] = useState<RoomSettings>({ ...DEFAULT_SETTINGS, ...(specials ? { specials: true, official: false } : {}) });
+  const [name, setName] = useState(`Sala de ${nick}`);
+  const [s, setS] = useState<RoomSettings>({ ...DEFAULT_SETTINGS });
   return (
     <div>
       <h2>Crear sala</h2>
@@ -496,6 +469,13 @@ function OfficialRules() {
   );
 }
 
+/** Personajes secretos de la cuenta (colección leída del servidor; nunca de localStorage). */
+function useOwnedSecrets(): HeroId[] {
+  const acc = useAccount();
+  const owned = acc.owned();
+  return SECRET_IDS.filter((h) => owned.has(h));
+}
+
 function OfflineSetup({ kind, prefs, setPrefs, onCancel, onStart }: {
   kind: 'training' | 'bots'; prefs: Prefs; setPrefs: (p: Prefs) => void; onCancel: () => void; onStart: (o: LocalOptions) => void;
 }) {
@@ -503,10 +483,11 @@ function OfflineSetup({ kind, prefs, setPrefs, onCancel, onStart }: {
   const [teamSize, setTeamSize] = useState<1 | 2 | 3>(1);
   const [skill, setSkill] = useState(0.6);
   const [cooldowns, setCooldowns] = useState<RoomSettings['cooldowns']>('normal');
+  const secrets = useOwnedSecrets();
   return (
     <div>
       <h2>{kind === 'training' ? 'Entrenamiento (sin conexión)' : 'Partido contra bots (sin conexión)'}</h2>
-      {mode !== 'classic' && <HeroPicker mode={mode} value={prefs.hero} onChange={(hero) => setPrefs({ ...prefs, hero })} team="red" note="Sin conexión podés usar cualquier héroe, esté o no en tu colección." />}
+      {mode !== 'classic' && <HeroPicker mode={mode} value={prefs.hero} secrets={secrets} onChange={(hero) => setPrefs({ ...prefs, hero })} team="red" note="Sin conexión podés usar cualquier héroe, esté o no en tu colección." />}
       <div className="fields">
         <label>Modo
           <select value={mode} onChange={(e) => setMode(e.target.value as GameMode)}>
@@ -536,7 +517,7 @@ function OfflineSetup({ kind, prefs, setPrefs, onCancel, onStart }: {
       <div className="btn-row">
         <button onClick={onCancel}>Volver</button>
         <span className="grow" />
-        <button className="primary" onClick={() => onStart({ kind, mode, hero: prefs.hero, teamSize, timeLimitMin: 3, scoreLimit: 3, botSkill: skill, noCooldowns: cooldowns === 'none' && mode !== 'classic' })}>Jugar</button>
+        <button className="primary" onClick={() => onStart({ kind, mode, hero: prefs.hero, teamSize, timeLimitMin: 3, scoreLimit: 3, botSkill: skill, noCooldowns: cooldowns === 'none' && mode !== 'classic', secrets })}>Jugar</button>
       </div>
     </div>
   );
@@ -571,7 +552,7 @@ function OnlineRoom({ prefs, setPrefs }: { prefs: Prefs; setPrefs: (p: Prefs) =>
       chat={room.playing && !open ? { lines: n.chat, send: (text) => n.send({ t: 'chat', text }) } : undefined}
       menuOpen={open}
       onToggleMenu={() => setMenu((v) => !v)}
-      status={<>{room.settings.official ? <span className="tag official">Oficial</span> : <span className="tag">Casual</span>}<NoCdTag on={room.settings.cooldowns === 'none' && room.settings.mode !== 'classic'} /><SpecialsTag on={!!room.settings.specials} /><ConnBadge /></>}
+      status={<>{room.settings.official ? <span className="tag official">Oficial</span> : <span className="tag">Casual</span>}<NoCdTag on={room.settings.cooldowns === 'none' && room.settings.mode !== 'classic'} /><ConnBadge /></>}
       idle={null}
       menu={<RoomPanel room={room} prefs={prefs} setPrefs={setPrefs} onClose={room.playing ? () => setMenu(false) : undefined} />}
     />
@@ -628,13 +609,13 @@ function RoomPanel({ room, prefs, setPrefs, onClose }: { room: RoomInfo; prefs: 
   const isHost = room.hostId === n.id || n.isAdmin;
   const [copied, setCopied] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const invite = `${location.origin}${location.pathname}?${n.specialServer ? 'especial' : 'sala'}=${room.id}`;
+  const invite = `${location.origin}${location.pathname}?sala=${room.id}`;
   const official = room.settings.official;
   const owned = acc.owned();
-  // sala de personajes especiales: colección al día (p. ej. si recién te asignaron uno)
+  // colección al día al entrar (p. ej. si recién te asignaron un personaje especial) y, en P2P, firmada para el anfitrión
   useEffect(() => {
-    if (room.settings.specials) void acc.refresh();
-  }, [room.id, room.settings.specials]); // eslint-disable-line
+    if (acc.status === 'signed') void acc.refresh().then(() => n.proveHeroes());
+  }, [room.id]); // eslint-disable-line
   const o = acc.profile?.objectives;
   const col = (side: Side, title: string) => {
     const list = room.members.filter((m) => m.side === side);
@@ -659,7 +640,6 @@ function RoomPanel({ room, prefs, setPrefs, onClose }: { room: RoomInfo; prefs: 
         {room.name}
         {official ? <span className="tag official">Oficial</span> : <span className="tag">Casual</span>}
         <NoCdTag on={room.settings.cooldowns === 'none' && room.settings.mode !== 'classic'} />
-        <SpecialsTag on={!!room.settings.specials} />
         <span className="grow" />
         {onClose && <button className="mini" onClick={onClose}>Volver al partido (Esc)</button>}
       </h1>
@@ -678,15 +658,7 @@ function RoomPanel({ room, prefs, setPrefs, onClose }: { room: RoomInfo; prefs: 
           <OfficialRules />
         </div>
       ) : (
-        <p className="muted small">Partida casual: cualquier héroe, con bots si querés. No da recompensas.{room.settings.specials ? ' Personajes especiales activados: quien tenga uno en su colección lo puede usar.' : ''}</p>
-      )}
-      {!official && room.settings.specials && room.settings.mode !== 'classic' && (
-        // por qué no aparece un personaje especial: el servidor sólo lo acepta con cuenta verificada y colección
-        !n.account
-          ? <p className="small error-text">En esta sala no estás con tu cuenta: entrá con tu cuenta y volvé a entrar a la sala para usar tus personajes especiales.</p>
-          : !SECRET_IDS.some((h) => owned.has(h))
-            ? <p className="small muted">Tu cuenta no tiene personajes especiales. Un administrador tiene que asignártelos (Admin → la cuenta → «Personaje secreto»).</p>
-            : null
+        <p className="muted small">Partida casual: cualquier héroe, con bots si querés. No da recompensas.</p>
       )}
       <div className="teams">
         {col('red', 'Rojo')}
@@ -701,7 +673,7 @@ function RoomPanel({ room, prefs, setPrefs, onClose }: { room: RoomInfo; prefs: 
               value={me?.hero ?? prefs.hero}
               team={me?.side}
               locked={official ? (h) => !owned.has(h) : undefined}
-              secrets={room.settings.specials && n.account ? SECRET_IDS.filter((h) => owned.has(h)) : []}
+              secrets={SECRET_IDS.filter((h) => owned.has(h))}
               onChange={(hero: HeroId) => {
                 setPrefs({ ...prefs, hero });
                 n.send({ t: 'hero', hero });
@@ -729,6 +701,7 @@ function RoomPanel({ room, prefs, setPrefs, onClose }: { room: RoomInfo; prefs: 
           )}
           {n.error && <div className="error">{n.error}</div>}
           {n.adminError && <div className="error">{n.adminError}</div>}
+          {n.heroesError && <div className="error">{n.heroesError}</div>}
           <div className="btn-row">
             <button onClick={() => n.leaveRoom()}>{n.isBrowserHost ? 'Cerrar la sala' : 'Salir de la sala'}</button>
             <button onClick={() => setShowSettings(!showSettings)} aria-expanded={showSettings}>Ajustes</button>
@@ -824,6 +797,7 @@ function OfflineGame({ prefs, setPrefs, nick, opts, onExit }: { prefs: Prefs; se
             mode={opts.mode}
             value={prefs.hero}
             team="red"
+            secrets={opts.secrets}
             onChange={(hero) => { setPrefs({ ...prefs, hero }); session.setHero(hero); }}
             note={opts.kind === 'bots' ? 'El cambio se aplica en el próximo saque.' : undefined}
           />

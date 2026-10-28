@@ -1,7 +1,7 @@
 // Partidas oficiales: el resumen lo arma la sala del servidor a partir de su
 // propia simulación (nunca de lo que diga un cliente o un anfitrión P2P) y
 // estas reglas puras deciden quién es elegible para recompensa.
-import { isSecret, type HeroId } from '../shared/config';
+import type { HeroId } from '../shared/config';
 import { ECONOMY } from '../shared/economy';
 import type { GameMode, Team } from '../shared/types';
 
@@ -63,7 +63,6 @@ export function evaluateMatch(m: MatchSummary, sameOpponentsToday: (userId: stri
   if (!m.finished) common = 'El partido no terminó por reglamento (se detuvo o reinició).';
   else if (!OFFICIAL_MODES.includes(m.mode)) common = 'El modo Súper es casual: no entrega recompensas.';
   else if (m.noCooldowns) common = 'Partida sin cooldowns: es casual y no entrega recompensas.';
-  else if (m.participants.some((p) => isSecret(p.hero))) common = 'Participó un personaje especial: la partida es casual y no entrega recompensas.';
   else if (seconds < R.minSeconds) common = `Duró menos de ${R.minSeconds} s.`;
   else if (red.size < 1 || blue.size < 1 || red.size + blue.size < 2 || both) common = 'Hacen falta cuentas distintas en ambos equipos.';
   else if (m.kicks.red < R.minKicksPerTeam || m.kicks.blue < R.minKicksPerTeam) common = 'Un equipo casi no jugó la pelota.';

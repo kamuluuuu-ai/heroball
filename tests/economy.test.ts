@@ -180,12 +180,11 @@ describe('elegibilidad de partidas oficiales', () => {
     expect(v[0].opponents).toBe('b');
   });
 
-  it('con un personaje especial (Thanos) en la partida nadie recibe recompensa', () => {
+  it('un personaje especial (Thanos) asignado por un administrador juega como cualquier héroe', () => {
     const m = base();
     m.participants[1].hero = 'thanos';
     const v = evaluateMatch(m, none);
-    expect(v.every((x) => !x.eligible)).toBe(true);
-    expect(v[0].reason).toMatch(/personaje especial/);
+    expect(v.map((x) => x.eligible)).toEqual([true, true]);
   });
 
   it('rechazos: sin terminar, corta, Súper, una sola cuenta, sin juego, AFK, abandono, rivales repetidos', () => {

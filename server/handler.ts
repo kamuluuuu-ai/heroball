@@ -1,6 +1,6 @@
 // Manejo de mensajes de un cliente conectado. Sin dependencias de Node: lo usa
 // el servidor WebSocket y también el navegador anfitrión en modo WebRTC.
-import { makeNonce, verifyAdmin } from '../shared/admin';
+import { makeNonce, verifyAdmin, verifyHeroes } from '../shared/admin';
 import { isSecret } from '../shared/config';
 import { MAX_NICK, PROTOCOL_VERSION, cleanText, parseClientMessage, type AccountInfo } from '../shared/protocol';
 import { RateLimiter } from './rate';
@@ -28,6 +28,7 @@ export function createHandler(lobby: Lobby, client: Client, opts: HandlerOptions
   // desafío de administrador, distinto en cada conexión
   const nonce = makeNonce();
   let adminTries = 0;
+  let heroTries = 0;
   let hello: Promise<void> | null = null;
   const reject = (msg?: string) => {
     if (msg) client.send({ t: 'error', msg });
@@ -84,6 +85,16 @@ export function createHandler(lobby: Lobby, client: Client, opts: HandlerOptions
           client.room?.sendRoom();
         }
         client.send({ t: 'admin', ok });
+      });
+      return;
+    }
+    if (m.t === 'heroes') {
+      // con servidor de cuentas la colección se lee de la base de datos
+      if (lobby.official) return;
+      if (++heroTries > 5) return reject('Demasiados intentos.');
+      void verifyHeroes(m.sig, nonce, client.id, m.heroes, opts.adminPublicKey).then((ok) => {
+        if (ok) client.owned = new Set(m.heroes.filter(isSecret));
+        client.send({ t: 'heroes', ok });
       });
       return;
     }

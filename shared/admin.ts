@@ -46,26 +46,52 @@ function challenge(nonce: string, clientId: string): Uint8Array<ArrayBuffer> {
   return new TextEncoder().encode(`heroball-admin|${nonce}|${clientId}`) as Uint8Array<ArrayBuffer>;
 }
 
-/** Firma el desafío con la clave privada (PKCS#8 en base64). Lanza si la clave es inválida. */
-export async function signAdmin(privateKeyB64: string, nonce: string, clientId: string): Promise<string> {
+/**
+ * Texto firmado para los personajes secretos de una cuenta: otro prefijo, así
+ * esta firma nunca vale como permiso de administrador (ni al revés).
+ */
+function heroesChallenge(nonce: string, clientId: string, heroes: readonly string[]): Uint8Array<ArrayBuffer> {
+  return new TextEncoder().encode(`heroball-heroes|${nonce}|${clientId}|${heroes.join(',')}`) as Uint8Array<ArrayBuffer>;
+}
+
+async function sign(privateKeyB64: string, data: Uint8Array<ArrayBuffer>): Promise<string> {
   const c = subtle();
   if (!c) throw new Error('Este navegador no permite firmar (requiere HTTPS).');
   const key = await c.importKey('pkcs8', fromB64(privateKeyB64), ALG, false, ['sign']);
-  return toB64(await c.sign(SIGN, key, challenge(nonce, clientId)));
+  return toB64(await c.sign(SIGN, key, data));
+}
+
+/** Firma el desafío con la clave privada (PKCS#8 en base64). Lanza si la clave es inválida. */
+export function signAdmin(privateKeyB64: string, nonce: string, clientId: string): Promise<string> {
+  return sign(privateKeyB64, challenge(nonce, clientId));
+}
+
+/** El servidor firma qué personajes secretos tiene la cuenta de esta conexión (para un anfitrión P2P). */
+export function signHeroes(privateKeyB64: string, nonce: string, clientId: string, heroes: readonly string[]): Promise<string> {
+  return sign(privateKeyB64, heroesChallenge(nonce, clientId, heroes));
 }
 
 let pubKey: Promise<CryptoKey> | null = null;
 
-/** Verifica la firma con la clave pública incluida en el código. */
-export async function verifyAdmin(sig: string, nonce: string, clientId: string, publicKey: JsonWebKey = ADMIN_PUBLIC_KEY): Promise<boolean> {
+async function verify(sig: string, data: Uint8Array<ArrayBuffer>, publicKey: JsonWebKey): Promise<boolean> {
   const c = subtle();
   if (!c) return false;
   try {
     const key = publicKey === ADMIN_PUBLIC_KEY
       ? await (pubKey ??= c.importKey('jwk', ADMIN_PUBLIC_KEY, ALG, false, ['verify']))
       : await c.importKey('jwk', publicKey, ALG, false, ['verify']);
-    return await c.verify(SIGN, key, fromB64(sig), challenge(nonce, clientId));
+    return await c.verify(SIGN, key, fromB64(sig), data);
   } catch {
     return false;
   }
+}
+
+/** Verifica la firma con la clave pública incluida en el código. */
+export function verifyAdmin(sig: string, nonce: string, clientId: string, publicKey: JsonWebKey = ADMIN_PUBLIC_KEY): Promise<boolean> {
+  return verify(sig, challenge(nonce, clientId), publicKey);
+}
+
+/** Verifica la firma de personajes secretos emitida por el servidor para este desafío y conexión. */
+export function verifyHeroes(sig: string, nonce: string, clientId: string, heroes: readonly string[], publicKey: JsonWebKey = ADMIN_PUBLIC_KEY): Promise<boolean> {
+  return verify(sig, heroesChallenge(nonce, clientId, heroes), publicKey);
 }

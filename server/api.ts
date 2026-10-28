@@ -3,7 +3,8 @@
 // identidad, los roles ni los saldos.
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { fromNodeHeaders, toNodeHandler } from 'better-auth/node';
-import { signAdmin } from '../shared/admin';
+import { signAdmin, signHeroes } from '../shared/admin';
+import { SECRET_IDS } from '../shared/config';
 import { ECONOMY } from '../shared/economy';
 import { sessionUser, type Auth } from './auth';
 import { Economy, EconomyError } from './economy';
@@ -140,6 +141,17 @@ export function createApi(o: ApiOptions): Handler {
         const b = await readBody(req);
         if (typeof b.nonce !== 'string' || b.nonce.length > 64 || typeof b.clientId !== 'string' || b.clientId.length > 32) throw new EconomyError('bad_ticket', 'Desafío inválido.');
         json(res, 200, { sig: await signAdmin(o.moderatorSigningKey, b.nonce, b.clientId) });
+        return true;
+      }
+      if (post && path === '/api/heroes/ticket') {
+        // firma de los personajes secretos de la cuenta para un anfitrión P2P (que no puede verificar sesiones)
+        const u = await user(req);
+        if (!o.moderatorSigningKey) throw new EconomyError('no_key', 'Este servidor no tiene configurada la firma: los personajes especiales no se pueden usar en salas del navegador.', 503);
+        const b = await readBody(req);
+        if (typeof b.nonce !== 'string' || b.nonce.length > 64 || typeof b.clientId !== 'string' || b.clientId.length > 32) throw new EconomyError('bad_ticket', 'Desafío inválido.');
+        const owned = await eco.ownedHeroes(u.id);
+        const heroes = SECRET_IDS.filter((h) => owned.has(h));
+        json(res, 200, { heroes, sig: await signHeroes(o.moderatorSigningKey, b.nonce, b.clientId, heroes) });
         return true;
       }
       if (get && path === '/api/admin/users') {

@@ -327,6 +327,11 @@ class AccountStore {
     await this.refresh();
   }
 
+  /** Personajes secretos de la cuenta firmados por el servidor, para presentarlos a un anfitrión P2P. */
+  async heroesTicket(nonce: string, clientId: string): Promise<{ heroes: HeroId[]; sig: string }> {
+    return this.call<{ heroes: HeroId[]; sig: string }>('POST', '/api/heroes/ticket', { nonce, clientId });
+  }
+
   /** Firma de moderación para salas P2P (la clave privada vive sólo en el servidor). */
   async moderationTicket(nonce: string, clientId: string): Promise<string> {
     const r = await this.call<{ sig: string }>('POST', '/api/moderation/ticket', { nonce, clientId });

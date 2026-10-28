@@ -82,9 +82,7 @@ export class Room {
     this.name = cleanText(name, MAX_ROOM_NAME) || 'Sala HeroBall';
     this.officialAdapter = official;
     this.settings = { ...DEFAULT_SETTINGS, ...settings };
-    if (this.settings.official && (!this.officialCapable(this.settings.mode) || this.settings.cooldowns === 'none' || this.settings.specials)) this.settings.official = false;
-    // personajes especiales: sólo donde el servidor puede verificar la colección
-    if (this.settings.specials && !this.officialAdapter) this.settings.specials = false;
+    if (this.settings.official && (!this.officialCapable(this.settings.mode) || this.settings.cooldowns === 'none')) this.settings.official = false;
     this.onEmpty = onEmpty;
   }
 
@@ -93,22 +91,18 @@ export class Room {
   }
 
   get official(): boolean {
-    // sin cooldowns o con personajes especiales nunca es oficial, aunque alguien intente declararlo
-    return this.settings.official && this.officialAdapter !== null && this.settings.cooldowns !== 'none' && !this.settings.specials;
-  }
-
-  /** ¿Se permiten personajes especiales? Sólo casual, en el servidor que verifica colecciones. */
-  get specials(): boolean {
-    return this.settings.specials && this.officialAdapter !== null && !this.official;
+    // sin cooldowns nunca es oficial, aunque alguien intente declararlo
+    return this.settings.official && this.officialAdapter !== null && this.settings.cooldowns !== 'none';
   }
 
   /**
    * ¿Puede este cliente usar el héroe en esta sala? Colección en salas
-   * oficiales; los secretos, sólo con personajes especiales y si la colección
-   * (leída en el servidor) lo tiene.
+   * oficiales; los secretos, en cualquier sala, sólo si la colección los tiene:
+   * leída de la base de datos en el servidor, o firmada por el servidor para
+   * esta conexión en una sala P2P (el navegador no puede inventarla).
    */
   heroAllowed(c: Client | undefined, hero: HeroId): boolean {
-    if (isSecret(hero)) return this.specials && !!c?.userId && !!c.owned?.has(hero);
+    if (isSecret(hero)) return !!c?.owned?.has(hero);
     if (!this.official) return true;
     return STARTER_IDS.includes(hero) || !!c?.owned?.has(hero);
   }
@@ -121,13 +115,13 @@ export class Room {
     return {
       id: this.id, name: this.name, players: this.members.size, maxPlayers: this.settings.maxPlayers,
       mode: this.settings.mode, teamSize: this.settings.teamSize, playing: this.game !== null, official: this.official,
-      cooldowns: this.settings.cooldowns, specials: this.specials,
+      cooldowns: this.settings.cooldowns,
     };
   }
 
   info(): RoomInfo {
     return {
-      id: this.id, name: this.name, settings: { ...this.settings, official: this.official, specials: this.specials }, hostId: this.hostId, playing: this.game !== null,
+      id: this.id, name: this.name, settings: { ...this.settings, official: this.official }, hostId: this.hostId, playing: this.game !== null,
       members: [...this.members.values()].map((m) => ({
         id: m.id, nick: m.nick, side: m.side, hero: m.hero, bot: m.bot,
         host: m.id === this.hostId, admin: !!m.client?.admin, verified: !!m.client?.userId, ping: m.client?.ping ?? 0,
@@ -268,7 +262,7 @@ export class Room {
     const m = this.members.get(id);
     if (!m) return null;
     if (isSecret(hero) && !this.heroAllowed(m.client, hero)) {
-      return this.specials ? 'Ese personaje especial no está en tu colección.' : 'Los personajes especiales sólo se usan en salas casuales del servidor con «Personajes especiales» activado.';
+      return 'Ese personaje especial no está en tu colección (lo asigna un administrador).';
     }
     if (!this.heroAllowed(m.client, hero)) return 'Ese héroe está bloqueado en tu colección: en partidas oficiales sólo podés usar los que tenés.';
     m.hero = hero;
@@ -296,13 +290,7 @@ export class Room {
     if (next.official && !this.officialAdapter) return 'Las partidas oficiales sólo existen en el servidor de HeroBall (no en salas del navegador).';
     if (next.official && !OFFICIAL_MODES.includes(next.mode)) return 'El modo Súper es casual: elegí Héroes o Clásico para una partida oficial.';
     if (next.official && next.cooldowns === 'none') return 'Sin cooldowns es siempre casual: no puede ser una partida oficial.';
-    if (next.specials && !this.officialAdapter) return 'Los personajes especiales sólo existen en el servidor de HeroBall (no en salas del navegador).';
-    if (next.official && next.specials) return 'Con personajes especiales la sala es casual: no puede ser oficial.';
     this.settings = next;
-    // sin personajes especiales, quien tenía uno vuelve a un inicial
-    for (const m of this.members.values()) {
-      if (isSecret(m.hero) && !this.heroAllowed(m.client, m.hero)) m.hero = 'spider';
-    }
     if (this.official) {
       // oficial: sin bots, invitados a espectadores y héroes de la colección
       for (const m of [...this.members.values()]) {

@@ -28,12 +28,6 @@ export interface RoomSettings {
    * aplica al próximo reinicio.
    */
   cooldowns: 'normal' | 'none';
-  /**
-   * Personajes especiales (Thanos): sólo en salas casuales del servidor, para
-   * quien lo tenga en su colección (verificado en el servidor). Mientras esté
-   * activo la sala no es oficial: sin clasificación ni recompensas.
-   */
-  specials: boolean;
 }
 
 export const DEFAULT_SETTINGS: RoomSettings = {
@@ -44,7 +38,6 @@ export const DEFAULT_SETTINGS: RoomSettings = {
   maxPlayers: 10,
   official: false,
   cooldowns: 'normal',
-  specials: false,
 };
 
 export interface RoomSummary {
@@ -57,7 +50,6 @@ export interface RoomSummary {
   playing: boolean;
   official: boolean;
   cooldowns: 'normal' | 'none';
-  specials: boolean;
 }
 
 export interface RoomMember {
@@ -146,6 +138,8 @@ export type ClientMsg =
   | { t: 'addbot'; side: Team }
   | { t: 'kick'; target: string }
   | { t: 'admin'; sig: string }
+  /** Salas P2P: personajes secretos de la cuenta, firmados por el servidor para este desafío. */
+  | { t: 'heroes'; heroes: HeroId[]; sig: string }
   | { t: 'makehost'; target: string }
   | { t: 'in'; s: number; b: number }
   | { t: 'ping'; c: number; r?: number };
@@ -154,6 +148,7 @@ export type ServerMsg =
   | { t: 'welcome'; id: string; v: number; nonce: string; account: AccountInfo | null; official: boolean }
   | { t: 'reward'; r: RewardInfo }
   | { t: 'admin'; ok: boolean }
+  | { t: 'heroes'; ok: boolean }
   | { t: 'adminstate'; s: AdminState }
   | { t: 'rooms'; rooms: RoomSummary[] }
   | { t: 'room'; room: RoomInfo }
@@ -205,10 +200,6 @@ export function sanitizeSettings(raw: unknown): Partial<RoomSettings> | null {
   if ('cooldowns' in r) {
     if (r.cooldowns !== 'normal' && r.cooldowns !== 'none') return null;
     out.cooldowns = r.cooldowns;
-  }
-  if ('specials' in r) {
-    if (typeof r.specials !== 'boolean') return null;
-    out.specials = r.specials;
   }
   return out;
 }
@@ -270,6 +261,10 @@ export function parseClientMessage(raw: string): ClientMsg | null {
     case 'admin':
       if (!isStr(o.sig, 200)) return null;
       return { t: 'admin', sig: o.sig };
+    case 'heroes':
+      if (!isStr(o.sig, 200) || !Array.isArray(o.heroes) || o.heroes.length > 8) return null;
+      if (!o.heroes.every((h) => HERO_IDS.includes(h as HeroId))) return null;
+      return { t: 'heroes', heroes: o.heroes as HeroId[], sig: o.sig };
     case 'in':
       if (!isInt(o.s, 0, 2 ** 31) || !isInt(o.b, 0, INPUT_MASK)) return null;
       return { t: 'in', s: o.s, b: o.b };

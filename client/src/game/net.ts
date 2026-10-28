@@ -2,7 +2,8 @@
 // por WebRTC). Los snapshots van directo a la sesión de juego (sin pasar por
 // React); la interfaz sólo escucha sala, chat y estado.
 import { PROTOCOL_VERSION, type AccountInfo, type AdminState, type ClientMsg, type RoomInfo, type RoomSettings, type RewardInfo, type RoomSummary, type ServerMsg } from '../../../shared/protocol';
-import { API_BASE, account } from '../account';
+import { SECRET_IDS } from '../../../shared/config';
+import { account } from '../account';
 import type { GameEvent, GameState, Side } from '../../../shared/types';
 import { BrowserHost, P2P, peerGuestTransport, wsTransport, type Transport } from './transport';
 
@@ -26,24 +27,8 @@ export interface SnapshotSink {
 let chatId = 0;
 
 export class NetClient {
-  /**
-   * Sala de personajes especiales en el servidor de cuentas desde el build web:
-   * esa conexión se comporta como en el build con servidor (token verificado,
-   * colección leída en el servidor); las demás salas siguen siendo P2P.
-   */
-  private viaServer = false;
   /** true en el build web: sin servidor central, salas alojadas en el navegador. */
-  get p2p(): boolean {
-    return P2P && !this.viaServer;
-  }
-  /** ¿Estamos en una sala del servidor abierta desde el build web (sólo personajes especiales)? */
-  get specialServer(): boolean {
-    return this.viaServer;
-  }
-  /** ¿El build web puede abrir salas de personajes especiales en el servidor? */
-  get canSpecialServer(): boolean {
-    return P2P && API_BASE !== null;
-  }
+  readonly p2p = P2P;
   private transport: Transport | null = null;
   private host: BrowserHost | null = null;
   status: ConnStatus = 'closed';
@@ -66,6 +51,10 @@ export class NetClient {
   /** Verificado como moderador en esta conexión. */
   isAdmin = false;
   adminError: string | null = null;
+  /** Por qué el anfitrión P2P no reconoce tus personajes especiales (o null). */
+  heroesError: string | null = null;
+  /** Personajes secretos ya presentados a este anfitrión (firma por desafío). */
+  private provedHeroes = '';
   adminState: AdminState | null = null;
   private nonce = '';
   private listeners = new Set<Listener>();
@@ -88,16 +77,8 @@ export class NetClient {
     return this.transport !== null;
   }
 
-  connect(nick: string, joinRoom?: string, server = false): void {
+  connect(nick: string, joinRoom?: string): void {
     this.nick = nick;
-    if (P2P && server && joinRoom && this.canSpecialServer) {
-      // invitación a una sala de personajes especiales: está en el servidor
-      if (this.transport) this.disconnect();
-      this.viaServer = true;
-      this.pendingJoin = joinRoom;
-      this.attach(wsTransport());
-      return;
-    }
     if (this.transport && this.status !== 'closed') {
       this.send(this.hello());
       if (joinRoom) this.send({ t: 'join', room: joinRoom });
@@ -143,10 +124,8 @@ export class NetClient {
     };
     t.onclose = (reason) => {
       if (this.transport !== t) return;
-      const special = this.viaServer;
       this.detach();
       if (reason) this.error = reason;
-      else if (special) this.error = 'Se cortó la conexión con el servidor de HeroBall (la sala de personajes especiales vive allí). Si recién se despierta, probá de nuevo en unos segundos.';
       this.emit();
     };
     t.onmessage = (data) => {
@@ -181,6 +160,29 @@ export class NetClient {
       });
   }
 
+  /**
+   * Personajes especiales en salas P2P: el anfitrión es otro navegador y no
+   * puede verificar sesiones, así que el servidor firma qué secretos tiene la
+   * cuenta para el desafío de esta conexión y el anfitrión verifica la firma.
+   * En el servidor propio la colección se lee de la base de datos.
+   */
+  proveHeroes(): void {
+    if (!this.p2p || !this.nonce) return;
+    const mine = SECRET_IDS.filter((h) => account.owned().has(h));
+    const key = mine.join(',');
+    if (!mine.length || key === this.provedHeroes) return;
+    this.provedHeroes = key;
+    const t = this.transport;
+    const nonce = this.nonce;
+    account.heroesTicket(nonce, this.id)
+      .then(({ heroes, sig }) => { if (this.transport === t && this.nonce === nonce) this.send({ t: 'heroes', heroes, sig }); })
+      .catch((e: Error) => {
+        this.provedHeroes = '';
+        this.heroesError = `No se pudieron verificar tus personajes especiales: ${e.message}`;
+        this.emit();
+      });
+  }
+
   dismissReward(): void {
     this.reward = null;
     this.emit();
@@ -188,18 +190,19 @@ export class NetClient {
 
   /** Reconecta con el servidor (p. ej. tras iniciar o cerrar sesión) si no está en una sala. */
   reconnect(): void {
-    if (P2P || this.room || !this.nick) return;
+    if (this.p2p || this.room || !this.nick) return;
     this.disconnect();
     this.connect(this.nick);
   }
 
   private detach(): void {
     window.clearInterval(this.pingTimer);
-    this.viaServer = false;
     this.isAdmin = false;
     this.account = null;
     this.adminState = null;
     this.nonce = '';
+    this.provedHeroes = '';
+    this.heroesError = null;
     this.transport = null;
     this.host = null;
     this.room = null;
@@ -211,14 +214,6 @@ export class NetClient {
 
   /** Crear sala: en el servidor, o alojándola en este navegador (modo web). */
   createRoom(name: string, settings: Partial<RoomSettings>): void {
-    if (P2P && settings.specials && this.canSpecialServer) {
-      // personajes especiales: el servidor verifica la colección, así que la sala vive allí
-      this.viaServer = true;
-      this.error = null;
-      this.pendingCreate = { name, settings: { ...settings, official: false } };
-      this.attach(wsTransport());
-      return;
-    }
     if (!this.p2p) {
       this.send({ t: 'create', name, settings });
       return;
@@ -240,7 +235,7 @@ export class NetClient {
   }
 
   leaveRoom(): void {
-    if (!P2P) {
+    if (!this.p2p) {
       this.send({ t: 'leave' });
       return;
     }
@@ -291,7 +286,8 @@ export class NetClient {
           if (m.account.roles.includes('moderator')) this.isAdmin = true;
         }
         this.proveModerator();
-        if (!P2P) this.send({ t: 'list' });
+        this.proveHeroes();
+        if (!this.p2p) this.send({ t: 'list' });
         if (this.pendingJoin) {
           this.send({ t: 'join', room: this.pendingJoin });
           this.pendingJoin = null;
@@ -310,7 +306,7 @@ export class NetClient {
         this.error = null;
         break;
       case 'left':
-        if (P2P) {
+        if (this.p2p) {
           const t = this.transport;
           this.detach();
           t?.close();
@@ -338,6 +334,9 @@ export class NetClient {
       case 'admin':
         this.isAdmin = m.ok;
         this.adminError = m.ok ? null : 'El servidor no reconoció el permiso de moderación.';
+        break;
+      case 'heroes':
+        this.heroesError = m.ok ? null : 'El anfitrión no reconoció la firma de tus personajes especiales.';
         break;
       case 'adminstate':
         this.adminState = m.s;

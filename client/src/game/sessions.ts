@@ -60,6 +60,8 @@ export interface LocalOptions {
   botSkill: number;
   /** «Sin cooldowns» (Héroes y Súper). */
   noCooldowns?: boolean;
+  /** Personajes secretos de la cuenta (colección leída del servidor). */
+  secrets?: HeroId[];
 }
 
 export class LocalSession implements Session {
@@ -77,8 +79,8 @@ export class LocalSession implements Session {
 
   private build(): GameState {
     const o = this.opts;
-    // sin servidor no se puede comprobar la propiedad: los personajes especiales sólo van en salas del servidor
-    if (isSecret(o.hero)) o.hero = 'spider';
+    // personajes secretos: sólo si la cuenta los tiene
+    if (isSecret(o.hero) && !o.secrets?.includes(o.hero)) o.hero = 'spider';
     const players: { id: string; team: Team; hero: HeroId }[] = [{ id: 'me', team: 'red', hero: o.hero }];
     this.brains = [];
     if (o.kind === 'bots') {
@@ -120,7 +122,7 @@ export class LocalSession implements Session {
   }
 
   setHero(hero: HeroId): void {
-    if (isSecret(hero)) return;
+    if (isSecret(hero) && !this.opts.secrets?.includes(hero)) return;
     this.opts.hero = hero;
     if (this.opts.kind === 'training') {
       // en entrenamiento se aplica al instante (sin rivales a quienes perjudicar)

@@ -582,7 +582,7 @@ describe('personaje secreto (Thanos)', () => {
     }
   });
 
-  it('sala: sólo con «Personajes especiales», cuenta dueña y servidor; nunca oficial ni P2P', async () => {
+  it('sala: Thanos para la cuenta dueña en cualquier sala del servidor (casual u oficial); nunca para otra', async () => {
     const lobby = new Lobby({ ownedHeroes: eco.adapter().ownedHeroes, settle: async () => [] });
     const owner = await signUp('Dueño');
     const other = await signUp('Otro');
@@ -592,23 +592,15 @@ describe('personaje secreto (Thanos)', () => {
     const ho = createHandler(lobby, co, { identify });
     ho.onMessage(JSON.stringify({ t: 'hello', nick: 'Dueño', v: 1, token: owner.token }));
     await flush();
-    // sala casual sin especiales: rechazado aunque sea suyo
+    // sala casual: aceptado
     ho.onMessage(JSON.stringify({ t: 'create', name: 'Casual', settings: { mode: 'heroes' } }));
     const room = co.room!;
     ho.onMessage(JSON.stringify({ t: 'hero', hero: 'thanos' }));
     await flush();
-    expect(room.members.get('o1')!.hero).not.toBe('thanos');
-    // con especiales: aceptado; la sala no puede ser oficial
-    ho.onMessage(JSON.stringify({ t: 'settings', settings: { specials: true, official: true } }));
-    await flush();
-    expect(io.some((m) => m.t === 'error' && /no puede ser oficial/.test(m.msg))).toBe(true);
-    ho.onMessage(JSON.stringify({ t: 'settings', settings: { specials: true } }));
-    await flush();
-    expect(room.specials).toBe(true);
-    expect(room.setSettings(room.hostId, { official: true })).not.toBeNull();
-    expect(room.official).toBe(false);
-    ho.onMessage(JSON.stringify({ t: 'hero', hero: 'thanos' }));
-    await flush();
+    expect(room.members.get('o1')!.hero).toBe('thanos');
+    // también en una sala oficial
+    expect(room.setSettings(room.hostId, { official: true })).toBeNull();
+    expect(room.official).toBe(true);
     expect(room.members.get('o1')!.hero).toBe('thanos');
     // otra cuenta sin Thanos en la misma sala: rechazado por el servidor
     const xo: ServerMsg[] = [];
@@ -621,13 +613,21 @@ describe('personaje secreto (Thanos)', () => {
     await flush();
     expect(room.members.get('x1')!.hero).not.toBe('thanos');
     expect(xo.some((m) => m.t === 'error')).toBe(true);
+    // un invitado no puede presentar una «firma» en el servidor: allí sólo vale la base de datos
+    hx.onMessage(JSON.stringify({ t: 'heroes', heroes: ['thanos'], sig: 'AAAA' }));
+    await flush();
+    expect(xo.some((m) => m.t === 'heroes')).toBe(false);
     // al retirarlo, deja de valer en la sala
     await db.query("DELETE FROM hero_unlock WHERE user_id = $1 AND hero = 'thanos'", [owner.id]);
     await lobby.refreshOwned(owner.id);
     expect(room.members.get('o1')!.hero).toBe('spider');
-    // P2P (sin servidor de cuentas): nunca hay especiales
-    const p2p = new Lobby(null);
-    const pr = p2p.create('p2p', { specials: true });
-    expect(pr.specials).toBe(false);
+  });
+
+  it('firma de personajes secretos para salas P2P: sólo los de la cuenta y con clave configurada', async () => {
+    const u = await signUp('Firma');
+    // este servidor de pruebas no tiene clave de firma
+    const r = await call('POST', '/api/heroes/ticket', { nonce: 'abc', clientId: 'p1' }, u.token);
+    expect(r.status).toBe(503);
+    expect((await call('POST', '/api/heroes/ticket', { nonce: 'abc', clientId: 'p1' })).status).toBe(401);
   });
 });

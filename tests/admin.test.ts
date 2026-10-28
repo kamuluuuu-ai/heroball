@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { createHandler } from '../server/handler';
 import { Client, Lobby } from '../server/room';
-import { ADMIN_PUBLIC_KEY, signAdmin, verifyAdmin } from '../shared/admin';
+import { ADMIN_PUBLIC_KEY, signAdmin, signHeroes, verifyAdmin } from '../shared/admin';
 
 // par de claves sólo para las pruebas (la clave real no está en el repositorio)
 let pub: JsonWebKey;
@@ -154,5 +154,64 @@ describe('administrador con clave firmada', () => {
     expect(st.snapBytes).toBeGreaterThan(100);
     expect(st.members.map((m: { id: string }) => m.id).sort()).toEqual(['h', 'z']);
     expect(host.msgs.some((m) => m.t === 'adminstate')).toBe(false);
+  });
+});
+
+describe('personajes secretos en salas P2P (firma del servidor)', () => {
+  const heroOf = (r: { members: Map<string, { hero: string }> }, id: string) => r.members.get(id)!.hero;
+  const reply = async (c: Fake) => {
+    await until(() => c.msgs.some((m) => m.t === 'heroes'));
+    return c.msgs.filter((m) => m.t === 'heroes').pop()?.ok as boolean | undefined;
+  };
+
+  it('sin firma Thanos se rechaza; con la firma de esta conexión se acepta', async () => {
+    const lobby = new Lobby();
+    const { r } = hostRoom(lobby);
+    const g = connect(lobby, 'g');
+    g.say({ t: 'join', room: r.id });
+    g.say({ t: 'hero', hero: 'thanos' });
+    expect(heroOf(r, 'g')).not.toBe('thanos');
+    expect(g.msgs.some((m) => m.t === 'error' && /colección/.test(m.msg))).toBe(true);
+    g.say({ t: 'heroes', heroes: ['thanos'], sig: await signHeroes(priv, nonceOf(g), 'g', ['thanos']) });
+    expect(await reply(g)).toBe(true);
+    g.say({ t: 'hero', hero: 'thanos' });
+    expect(heroOf(r, 'g')).toBe('thanos');
+  });
+
+  it('firmas inválidas: otra clave, otra conexión, otra lista o una firma de moderador', async () => {
+    const lobby = new Lobby();
+    const { r } = hostRoom(lobby);
+    const g = connect(lobby, 'g');
+    g.say({ t: 'join', room: r.id });
+    const n = nonceOf(g);
+    const bad = [
+      { heroes: ['thanos'], sig: await signHeroes(otherPriv, n, 'g', ['thanos']) },
+      { heroes: ['thanos'], sig: await signHeroes(priv, n, 'otro', ['thanos']) },
+      { heroes: ['thanos'], sig: await signHeroes(priv, n, 'g', []) },
+      { heroes: ['thanos'], sig: await signAdmin(priv, n, 'g') },
+    ];
+    for (const b of bad) {
+      g.msgs.length = 0;
+      g.say({ t: 'heroes', ...b });
+      expect(await reply(g)).toBe(false);
+    }
+    g.say({ t: 'hero', hero: 'thanos' });
+    expect(heroOf(r, 'g')).not.toBe('thanos');
+    // y la firma de héroes nunca da permisos de moderador
+    expect(g.admin).toBeFalsy();
+  });
+
+  it('una firma copiada de otra conexión no sirve', async () => {
+    const lobby = new Lobby();
+    const { r } = hostRoom(lobby);
+    const a = connect(lobby, 'a');
+    const b = connect(lobby, 'b');
+    a.say({ t: 'join', room: r.id });
+    b.say({ t: 'join', room: r.id });
+    const sig = await signHeroes(priv, nonceOf(a), 'a', ['thanos']);
+    b.say({ t: 'heroes', heroes: ['thanos'], sig });
+    expect(await reply(b)).toBe(false);
+    b.say({ t: 'hero', hero: 'thanos' });
+    expect(heroOf(r, 'b')).not.toBe('thanos');
   });
 });

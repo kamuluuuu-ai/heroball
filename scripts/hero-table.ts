@@ -16,7 +16,7 @@ for (const id of byRarity(PUBLIC_HERO_IDS)) {
 for (const id of SECRET_IDS) {
   const h = heroInfo(id, mode);
   console.log('');
-  console.log(`**${h.name}** (secreto, sólo salas casuales con personajes especiales). Q: ${h.q.desc} E: ${h.e.desc}`);
+  console.log(`**${h.name}** (secreto, en todos los modos para quien lo tenga asignado). Q: ${h.q.desc} E: ${h.e.desc}`);
   console.log('');
   console.log('| Tecla | Gema | Efecto | CD |');
   console.log('|---|---|---|---|');

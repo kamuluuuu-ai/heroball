@@ -205,7 +205,9 @@ export class Economy {
       if (isSecret(hero)) throw new EconomyError('secret', 'Ese personaje no se puede desbloquear.', 403);
       const owned = await this.ownedHeroes(userId, c);
       if (owned.has(hero)) throw new EconomyError('owned', 'Ya tenés ese héroe.', 409);
-      const cost = ECONOMY.unlockCost[HERO_CATALOG[hero].rarity];
+      const rarity = HERO_CATALOG[hero].rarity;
+      if (rarity === 'secret') throw new EconomyError('secret', 'Ese personaje no se puede desbloquear.', 403);
+      const cost = ECONOMY.unlockCost[rarity];
       if (w.fragments < cost) throw new EconomyError('insufficient', `Te faltan ${cost - w.fragments} Fragmentos.`, 409);
       await c.query("INSERT INTO hero_unlock (user_id, hero, source) VALUES ($1, $2, 'fragments')", [userId, hero]);
       const after = await this.apply(c, userId, 'unlock', { fragments: -cost }, { detail: { hero, cost } });
@@ -402,12 +404,13 @@ export class Economy {
   }
 
   /** Valida una asignación o retiro de un personaje secreto (sin aplicarlo). */
-  private async validateSecret(actor: string, body: Record<string, unknown>) {
+  private async validateSecret(actor: string, body: Record<string, unknown>, allHeroes = false) {
     await this.requireRole(actor, 'economy_admin');
     const userId = body.userId;
     if (typeof userId !== 'string' || userId.length > 64) throw new EconomyError('bad_user', 'Usuario inválido.');
     const hero = body.hero;
-    if (!isHero(hero) || !isSecret(hero)) throw new EconomyError('bad_hero', 'Sólo se asignan o retiran personajes secretos.');
+    if (!isHero(hero) || (!allHeroes && !isSecret(hero))) throw new EconomyError('bad_hero', 'Personaje inválido para esta operación.');
+    if (HERO_CATALOG[hero].starter) throw new EconomyError('starter', 'Los héroes iniciales son gratuitos y no se pueden retirar.', 409);
     const action = body.action;
     if (action !== 'grant' && action !== 'revoke') throw new EconomyError('bad_action', 'Acción inválida.');
     const reason = typeof body.reason === 'string' ? body.reason.replace(/[\u0000-\u001f\u007f]/g, '').trim() : '';
@@ -418,8 +421,8 @@ export class Economy {
   }
 
   /** Vista previa: a quién, qué y si es posible (para la confirmación del panel). */
-  async previewSecret(actor: string, body: Record<string, unknown>) {
-    const g = await this.validateSecret(actor, body);
+  async previewSecret(actor: string, body: Record<string, unknown>, allHeroes = false) {
+    const g = await this.validateSecret(actor, body, allHeroes);
     const has = (await this.db.query('SELECT 1 FROM hero_unlock WHERE user_id = $1 AND hero = $2', [g.userId, g.hero])).rowCount! > 0;
     return { ...g, owned: has, valid: g.action === 'grant' ? !has : has };
   }
@@ -429,8 +432,8 @@ export class Economy {
    * administrador; sin duplicados; no toca los demás héroes; deja auditoría y
    * avisa al usuario. Al retirarlo, si lo tenía equipado vuelve a Spider-Man.
    */
-  async setSecret(actor: string, body: Record<string, unknown>) {
-    const g = await this.validateSecret(actor, body);
+  async setSecret(actor: string, body: Record<string, unknown>, allHeroes = false) {
+    const g = await this.validateSecret(actor, body, allHeroes);
     const key = checkKey(body.key);
     await this.ensureAccount(g.userId);
     await this.ensureAccount(actor);

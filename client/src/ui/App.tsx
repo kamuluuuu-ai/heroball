@@ -274,7 +274,7 @@ function PlayTab({ prefs, setPrefs, nick, onOffline, onLogin, onHeroes }: {
       <div className="play-cards">
         <div className="play-card">
           <b>Entrenamiento</b>
-          <span className="small muted">Vos y la pelota, sin rival. Probá cualquier héroe gratis.</span>
+          <span className="small muted">Vos y la pelota, sin rival. Probá los héroes públicos gratis.</span>
           <button className="primary" onClick={() => setOffline('training')}>Entrenar</button>
         </div>
         <div className="play-card">
@@ -487,7 +487,7 @@ function OfflineSetup({ kind, prefs, setPrefs, onCancel, onStart }: {
   return (
     <div>
       <h2>{kind === 'training' ? 'Entrenamiento (sin conexión)' : 'Partido contra bots (sin conexión)'}</h2>
-      {mode !== 'classic' && <HeroPicker mode={mode} value={prefs.hero} secrets={secrets} onChange={(hero) => setPrefs({ ...prefs, hero })} team="red" note="Sin conexión podés usar cualquier héroe, esté o no en tu colección." />}
+      {mode !== 'classic' && <HeroPicker mode={mode} value={prefs.hero} secrets={secrets} onChange={(hero) => setPrefs({ ...prefs, hero })} team="red" note="Podés probar los héroes públicos sin desbloquearlos. Los especiales requieren que tu cuenta los tenga." />}
       <div className="fields">
         <label>Modo
           <select value={mode} onChange={(e) => setMode(e.target.value as GameMode)}>
@@ -763,6 +763,9 @@ function AdminPanel() {
 
 function OfflineGame({ prefs, setPrefs, nick, opts, onExit }: { prefs: Prefs; setPrefs: (p: Prefs) => void; nick: string; opts: LocalOptions; onExit: () => void }) {
   const session = useMemo(() => new LocalSession({ ...opts }), [opts]);
+  const ownedSecrets = useOwnedSecrets();
+  const secretKey = ownedSecrets.join(',');
+  useEffect(() => { session.setOwnedSecrets(ownedSecrets); }, [session, secretKey]);
   const [menu, setMenu] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const ended = useSyncExternalStore(
@@ -797,7 +800,7 @@ function OfflineGame({ prefs, setPrefs, nick, opts, onExit }: { prefs: Prefs; se
             mode={opts.mode}
             value={prefs.hero}
             team="red"
-            secrets={opts.secrets}
+            secrets={ownedSecrets}
             onChange={(hero) => { setPrefs({ ...prefs, hero }); session.setHero(hero); }}
             note={opts.kind === 'bots' ? 'El cambio se aplica en el próximo saque.' : undefined}
           />

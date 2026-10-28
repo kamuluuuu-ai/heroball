@@ -476,13 +476,14 @@ export const isSecret = (h: HeroId): boolean => SECRET_IDS.includes(h);
 export const PUBLIC_HERO_IDS: HeroId[] = HERO_IDS.filter((h) => !isSecret(h));
 
 export type Rarity = 'common' | 'rare' | 'epic' | 'legendary';
+export type HeroRarity = Rarity | 'secret';
 export type HeroRole = 'ataque' | 'defensa' | 'control' | 'movilidad';
 
 /**
  * Catálogo: la rareza indica frecuencia de obtención en cofres, no poder.
  * Los iniciales son gratis para todos y no aparecen en cofres.
  */
-export const HERO_CATALOG: Record<HeroId, { rarity: Rarity; role: HeroRole; starter: boolean }> = {
+export const HERO_CATALOG: Record<HeroId, { rarity: HeroRarity; role: HeroRole; starter: boolean }> = {
   spider: { rarity: 'common', role: 'control', starter: true },
   batman: { rarity: 'common', role: 'control', starter: true },
   hulk: { rarity: 'common', role: 'defensa', starter: true },
@@ -501,12 +502,12 @@ export const HERO_CATALOG: Record<HeroId, { rarity: Rarity; role: HeroRole; star
   ibai: { rarity: 'rare', role: 'defensa', starter: false },
   verity: { rarity: 'epic', role: 'ataque', starter: false },
   // secreto: esta rareza no se muestra (se ve "Secreto") ni participa de cofres (SECRET_IDS)
-  thanos: { rarity: 'legendary', role: 'control', starter: false },
+  thanos: { rarity: 'secret', role: 'control', starter: false },
 };
 
-export const RARITY_LABEL: Record<Rarity, string> = { common: 'Común', rare: 'Raro', epic: 'Épico', legendary: 'Legendario' };
+export const RARITY_LABEL: Record<HeroRarity, string> = { common: 'Común', rare: 'Raro', epic: 'Épico', legendary: 'Legendario', secret: 'Secreto' };
 
-const RARITY_RANK: Record<Rarity, number> = { common: 0, rare: 1, epic: 2, legendary: 3 };
+const RARITY_RANK: Record<HeroRarity, number> = { common: 0, rare: 1, epic: 2, legendary: 3, secret: 4 };
 /** Héroes agrupados por rareza (de común a legendario) para mostrarlos; dentro de cada rareza, el orden del catálogo. */
 export function byRarity(ids: readonly HeroId[]): HeroId[] {
   return [...ids].sort((a, b) => RARITY_RANK[HERO_CATALOG[a].rarity] - RARITY_RANK[HERO_CATALOG[b].rarity]);
@@ -669,4 +670,12 @@ export const SUPER_HEROES: Record<HeroId, HeroInfo> = {
 
 export function heroInfo(hero: HeroId, mode: string): HeroInfo {
   return (mode === 'super' ? SUPER_HEROES : HEROES)[hero];
+}
+
+/** Never expose an unowned secret, including a stale saved selection. */
+export function visibleHeroes(owned: readonly HeroId[] = []): HeroId[] {
+  return byRarity([...PUBLIC_HERO_IDS, ...SECRET_IDS.filter((h) => owned.includes(h))]);
+}
+export function visibleHeroSelection(hero: HeroId, owned: readonly HeroId[] = []): HeroId {
+  return isSecret(hero) && !owned.includes(hero) ? 'spider' : hero;
 }

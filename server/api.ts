@@ -172,12 +172,12 @@ export function createApi(o: ApiOptions): Handler {
         json(res, 200, path === '/api/admin/preview' ? await eco.previewGrant(u.id, b, correction) : await eco.grant(u.id, b, correction));
         return true;
       }
-      if (post && (path === '/api/admin/secret/preview' || path === '/api/admin/secret')) {
+      if (post && ['/api/admin/secret/preview', '/api/admin/secret', '/api/admin/heroes/preview', '/api/admin/heroes'].includes(path)) {
         const u = await user(req);
         const b = await readBody(req);
-        if (path === '/api/admin/secret/preview') json(res, 200, await eco.previewSecret(u.id, b));
+        if (path.endsWith('/preview')) json(res, 200, await eco.previewSecret(u.id, b, path.startsWith('/api/admin/heroes')));
         else {
-          const out = await eco.setSecret(u.id, b);
+          const out = await eco.setSecret(u.id, b, path.startsWith('/api/admin/heroes'));
           o.onHeroesChanged?.(out.userId);
           json(res, 200, out);
         }

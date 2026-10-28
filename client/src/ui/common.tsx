@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { GEM_COLOR, GEM_IDS, HEROES, byRarity, HERO_CATALOG, PUBLIC_HERO_IDS, RARITY_LABEL, SECRET_IDS, heroInfo, type HeroId, type Rarity } from '../../../shared/config';
+import { GEM_COLOR, GEM_IDS, HEROES, HERO_CATALOG, RARITY_LABEL, heroInfo, type HeroId, type HeroRarity, visibleHeroes, visibleHeroSelection } from '../../../shared/config';
 import type { GameMode } from '../../../shared/types';
 import { setAudio } from '../game/audio';
 import { drawGemIcon, drawHero, drawPowerIcon, onPortraitLoad, preloadPortraits } from '../game/heroArt';
@@ -45,10 +45,10 @@ function PowerIcon({ hero, slot }: { hero: HeroId; slot: 'q' | 'e' }) {
   return <canvas ref={ref} width={40} height={40} className="power-icon" />;
 }
 
-export const RARITY_ICON: Record<Rarity, string> = { common: '●', rare: '◆', epic: '★', legendary: '♛' };
+export const RARITY_ICON: Record<HeroRarity, string> = { common: '●', rare: '◆', epic: '★', legendary: '♛', secret: '✦' };
 
 /** Rareza con color, texto e icono (no depende sólo del color). */
-export function RarityTag({ rarity }: { rarity: Rarity }) {
+export function RarityTag({ rarity }: { rarity: HeroRarity }) {
   return <span className={`rarity r-${rarity}`}>{RARITY_ICON[rarity]} {RARITY_LABEL[rarity]}</span>;
 }
 
@@ -102,7 +102,8 @@ export function HeroPicker({ value, onChange, team, note, mode = 'heroes', locke
   /** Personajes secretos que esta cuenta tiene (sólo esos se muestran). */
   secrets?: HeroId[];
 }) {
-  const ids = byRarity([...PUBLIC_HERO_IDS, ...SECRET_IDS.filter((h) => secrets.includes(h))]);
+  const ids = visibleHeroes(secrets);
+  const selected = visibleHeroSelection(value, secrets);
   return (
     <div className="hero-picker">
       <div className="hero-row" role="radiogroup" aria-label="Héroe">
@@ -112,8 +113,8 @@ export function HeroPicker({ value, onChange, team, note, mode = 'heroes', locke
             <button
               key={id}
               role="radio"
-              aria-checked={id === value}
-              className={`hero-btn ${id === value ? 'sel' : ''} ${lock ? 'locked' : ''} r-${HERO_CATALOG[id].rarity}`}
+              aria-checked={id === selected}
+              className={`hero-btn ${id === selected ? 'sel' : ''} ${lock ? 'locked' : ''} r-${HERO_CATALOG[id].rarity}`}
               disabled={lock}
               onClick={() => onChange(id)}
               title={lock ? `${HEROES[id].name}: bloqueado en tu colección` : HEROES[id].name}
@@ -124,7 +125,7 @@ export function HeroPicker({ value, onChange, team, note, mode = 'heroes', locke
           );
         })}
       </div>
-      <PowerList hero={value} mode={mode} />
+      <PowerList hero={selected} mode={mode} />
       {note && <div className="muted small">{note}</div>}
     </div>
   );
@@ -177,7 +178,7 @@ export function SettingsPanel({ prefs, setPrefs }: { prefs: Prefs; setPrefs: (p:
 export function Controls() {
   return (
     <div className="controls-help muted small">
-      WASD/flechas mover · Espacio/X patear · Q/E poderes · 1–5 gemas (Thanos) · 1–3 responder el quiz · Enter chat · Esc menú
+      WASD/flechas mover · Espacio/X patear · Q/E poderes · 1–5 seleccionar habilidad · 1–3 responder el quiz · Enter chat · Esc menú
     </div>
   );
 }

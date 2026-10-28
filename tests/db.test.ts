@@ -631,3 +631,25 @@ describe('personaje secreto (Thanos)', () => {
     expect((await call('POST', '/api/heroes/ticket', { nonce: 'abc', clientId: 'p1' })).status).toBe(401);
   });
 });
+
+
+describe('entrega administrativa de cualquier héroe', () => {
+  it('requiere rol, es idempotente, audita y protege héroes iniciales', async () => {
+    const admin = await signUp('AdminHeroes');
+    await setRole(db, admin.email, 'economy_admin', true, 'test');
+    const u = await signUp('Premiado');
+    const body = {userId: u.id, hero: 'thor', action: 'grant', reason: 'Premio de torneo', key: key()};
+    expect((await call('POST', '/api/admin/heroes', body, u.token)).status).toBe(403);
+    const pv = await call('POST', '/api/admin/heroes/preview', body, admin.token);
+    expect(pv.body).toMatchObject({hero: 'thor', valid: true, owned: false});
+    const res = await Promise.all([call('POST', '/api/admin/heroes', body, admin.token), call('POST', '/api/admin/heroes', body, admin.token)]);
+    expect(res.map(r => r.status)).toEqual([200, 200]);
+    expect((await eco.ownedHeroes(u.id)).has('thor')).toBe(true);
+    expect((await db.query('SELECT count(*)::int AS n FROM hero_grant WHERE user_id = $1', [u.id])).rows[0].n).toBe(1);
+    expect((await call('POST', '/api/admin/heroes', {...body, hero: 'spider', action: 'revoke', key: key()}, admin.token)).status).toBe(409);
+    expect((await call('POST', '/api/admin/heroes', {...body, action: 'revoke', key: key()}, admin.token)).status).toBe(200);
+    expect((await eco.ownedHeroes(u.id)).has('thor')).toBe(false);
+    expect((await call('POST', '/api/admin/heroes', {...body, hero: 'thanos', key: key()}, admin.token)).status).toBe(200);
+    expect((await eco.ownedHeroes(u.id)).has('thanos')).toBe(true);
+  });
+});

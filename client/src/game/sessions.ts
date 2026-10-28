@@ -121,13 +121,22 @@ export class LocalSession implements Session {
     this.prev = cloneState(s);
   }
 
+  setOwnedSecrets(secrets: HeroId[]): void {
+    this.opts.secrets = [...secrets];
+    if (isSecret(this.opts.hero) && !secrets.includes(this.opts.hero)) {
+      const paused = this.state.paused;
+      this.opts.hero = 'spider';
+      this.restart();
+      this.state.paused = paused;
+    }
+  }
+
   setHero(hero: HeroId): void {
     if (isSecret(hero) && !this.opts.secrets?.includes(hero)) return;
     this.opts.hero = hero;
     if (this.opts.kind === 'training') {
-      // en entrenamiento se aplica al instante (sin rivales a quienes perjudicar)
-      const me = this.state.players.find((p) => p.id === 'me');
-      if (me) me.hero = hero;
+      // Limpiar tamaño, masa y efectos del héroe anterior.
+      this.restart();
     } else requestHero(this.state, 'me', hero);
   }
 

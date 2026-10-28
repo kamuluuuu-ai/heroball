@@ -1,7 +1,7 @@
 // Pantallas de cuenta y economía: acceso, colección, cofres, perfil y
 // administración. Todo saldo, héroe o rol que se muestra viene del servidor.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { HEROES, HERO_CATALOG, byRarity, PUBLIC_HERO_IDS, RARITY_LABEL, ROLE_LABEL, SECRET_IDS, isSecret, type HeroId, type HeroRole, type Rarity } from '../../../shared/config';
+import { HEROES, HERO_CATALOG, byRarity, PUBLIC_HERO_IDS, RARITY_LABEL, ROLE_LABEL, SECRET_IDS, isSecret, type HeroId, type HeroRole, type HeroRarity, type Rarity, HERO_IDS, visibleHeroes, visibleHeroSelection } from '../../../shared/config';
 import { ECONOMY, ODDS_SCALE, RARITIES, heroesOfRarity, type ChestType } from '../../../shared/economy';
 import { account, UnknownOutcome, newKey, type LedgerRow, type Notice, type Odds, type Opening, type OpenResult } from '../account';
 import { HeroBadge, PowerList, RARITY_ICON, RarityTag } from './common';
@@ -242,17 +242,18 @@ export function Collection({ selected, onEquip, onTry, onChests }: {
   const signed = a.status === 'signed';
   const owned = signed ? a.owned() : new Set<HeroId>(PUBLIC_HERO_IDS.filter((h) => HERO_CATALOG[h].starter));
   // los personajes secretos sólo aparecen en la colección de quien los tiene
-  const visible = byRarity([...PUBLIC_HERO_IDS, ...SECRET_IDS.filter((h) => owned.has(h))]);
-  const ownedPublic = PUBLIC_HERO_IDS.filter((h) => owned.has(h)).length;
-  const [rarity, setRarity] = useState<Rarity | 'all'>('all');
+  const visible = visibleHeroes([...owned]);
+  const ownedVisible = visible.filter((h) => owned.has(h)).length;
+  const [rarity, setRarity] = useState<HeroRarity | 'all'>('all');
   const [role, setRole] = useState<HeroRole | 'all'>('all');
   const [avail, setAvail] = useState<Avail>('all');
-  const [focus, setFocus] = useState<HeroId>(selected);
+  const [requestedFocus, setFocus] = useState<HeroId>(selected);
+  const focus = visibleHeroSelection(requestedFocus, [...owned]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const list = visible.filter((h) => {
     const c = HERO_CATALOG[h];
-    if (rarity !== 'all' && c.rarity !== rarity) return false;
+    if (rarity !== 'all' && !(rarity === 'secret' && !SECRET_IDS.some((id) => owned.has(id))) && c.rarity !== rarity) return false;
     if (role !== 'all' && c.role !== role) return false;
     if (avail === 'owned' && !owned.has(h)) return false;
     if (avail === 'locked' && owned.has(h)) return false;
@@ -261,8 +262,9 @@ export function Collection({ selected, onEquip, onTry, onChests }: {
   const c = HERO_CATALOG[focus];
   const have = owned.has(focus);
   const secret = isSecret(focus);
-  const pool = heroesOfRarity(c.rarity).length || 1;
-  const cost = ECONOMY.unlockCost[c.rarity];
+  const lootRarity = c.rarity === 'secret' ? null : c.rarity;
+  const pool = lootRarity ? heroesOfRarity(lootRarity).length || 1 : 1;
+  const cost = lootRarity ? ECONOMY.unlockCost[lootRarity] : 0;
   const frags = a.profile?.wallet.fragments ?? 0;
   const equipped = a.profile?.wallet.equipped;
 
@@ -299,14 +301,14 @@ export function Collection({ selected, onEquip, onTry, onChests }: {
   return (
     <div className="collection">
       <p className="muted small lead">
-        Todos los héroes se pueden <b>probar gratis</b> en entrenamiento, contra bots y en salas casuales. En <b>partidas oficiales</b> sólo podés usar los de tu colección.
+        Los héroes públicos se pueden <b>probar gratis</b> en entrenamiento, contra bots y en salas casuales. En <b>partidas oficiales</b> sólo podés usar los de tu colección.
         La rareza indica qué tan seguido sale en cofres, no cuánto poder tiene.
       </p>
       <div className="filters" role="group" aria-label="Filtros">
         <label>Rareza
-          <select value={rarity} onChange={(e) => setRarity(e.target.value as Rarity | 'all')}>
+          <select value={rarity === 'secret' && !SECRET_IDS.some((h) => owned.has(h)) ? 'all' : rarity} onChange={(e) => setRarity(e.target.value as HeroRarity | 'all')}>
             <option value="all">Todas</option>
-            {RARITIES.map((r) => <option key={r} value={r}>{RARITY_ICON[r]} {RARITY_LABEL[r]}</option>)}
+            {[...RARITIES, ...(SECRET_IDS.some((h) => owned.has(h)) ? ['secret' as const] : [])].map((r) => <option key={r} value={r}>{RARITY_ICON[r]} {RARITY_LABEL[r]}</option>)}
           </select>
         </label>
         <label>Rol
@@ -322,7 +324,7 @@ export function Collection({ selected, onEquip, onTry, onChests }: {
             <option value="locked">Bloqueados</option>
           </select>
         </label>
-        <span className="muted small">{ownedPublic}/{PUBLIC_HERO_IDS.length} en tu colección{!signed && ' (invitado: sólo los iniciales)'}</span>
+        <span className="muted small">{ownedVisible}/{visible.length} en tu colección{!signed && ' (invitado: sólo los iniciales)'}</span>
       </div>
       <div className="hero-grid">
         {list.map((h) => {
@@ -338,7 +340,7 @@ export function Collection({ selected, onEquip, onTry, onChests }: {
             >
               <HeroBadge hero={h} size={44} team="red" />
               <b>{HEROES[h].name}</b>
-              {isSecret(h) ? <span className="rarity secret">✦ Secreto</span> : <RarityTag rarity={cat.rarity} />}
+              <RarityTag rarity={cat.rarity} />
               <span className="small">{mine ? (h === (equipped ?? selected) ? '✔ Equipado' : 'En tu colección') : '🔒 Bloqueado'}</span>
             </button>
           );
@@ -350,7 +352,7 @@ export function Collection({ selected, onEquip, onTry, onChests }: {
           <HeroBadge hero={focus} size={64} team="red" />
           <div>
             <h2>{HEROES[focus].name}</h2>
-            <div className="hd-tags">{secret ? <span className="rarity secret">✦ Secreto</span> : <RarityTag rarity={c.rarity} />} <span className="tag">{ROLE_LABEL[c.role]}</span> {have ? <span className="tag ok">En tu colección</span> : <span className="tag lock">🔒 Bloqueado</span>}</div>
+            <div className="hd-tags"><RarityTag rarity={c.rarity} /> <span className="tag">{ROLE_LABEL[c.role]}</span> {have ? <span className="tag ok">En tu colección</span> : <span className="tag lock">🔒 Bloqueado</span>}</div>
           </div>
         </div>
         <PowerList hero={focus} />
@@ -360,7 +362,7 @@ export function Collection({ selected, onEquip, onTry, onChests }: {
             ? 'Personaje especial: no sale en cofres ni se desbloquea con Fragmentos; lo asigna un administrador. Se usa en todos los modos: entrenamiento, bots y salas.'
             : c.starter
               ? 'Héroe inicial: gratis para todos.'
-              : `Sale en cofres (${RARITY_LABEL[c.rarity].toLowerCase()}: ${pct(ECONOMY.chests.standard.odds[c.rarity] / pool)} por cofre estándar, ${pct(ECONOMY.chests.elite.odds[c.rarity] / pool)} por cofre élite). También se desbloquea con ${cost} Fragmentos, que dan los héroes repetidos.`}
+              : `Sale en cofres (${RARITY_LABEL[c.rarity].toLowerCase()}: ${pct((lootRarity ? ECONOMY.chests.standard.odds[lootRarity] : 0) / pool)} por cofre estándar, ${pct((lootRarity ? ECONOMY.chests.elite.odds[lootRarity] : 0) / pool)} por cofre élite). También se desbloquea con ${cost} Fragmentos, que dan los héroes repetidos.`}
         </p>
         <div className="btn-row">
           {!secret && <button onClick={() => onTry(focus)}>Probar en entrenamiento</button>}
@@ -859,7 +861,7 @@ function UserAdmin({ d, reload, self }: { d: UserDetail; reload: () => void; sel
             <label>Cofres élite<input type="number" min={0} step={1} value={elite} onChange={(e) => { setElite(e.target.value); setPreview(null); }} /></label>
           </div>
           <label className="block">Motivo (obligatorio, queda en el registro)
-            <input value={reason} minLength={5} maxLength={200} required onChange={(e) => { setReason(e.target.value); setPreview(null); }} />
+            <input value={reason} minLength={5} maxLength={200} required disabled={busy} onChange={(e) => { setReason(e.target.value); setPreview(null); }} />
           </label>
           <div className="btn-row">
             <button type="submit" disabled={busy}>Revisar</button>
@@ -899,7 +901,7 @@ function UserAdmin({ d, reload, self }: { d: UserDetail; reload: () => void; sel
         </div>
       )}
       {msg && <div className={msg.ok ? 'ok-text' : 'error'} role="status">{msg.text}</div>}
-      <SecretAdmin d={d} reload={reload} />
+      <SecretAdmin key={d.user.id} d={d} reload={reload} />
       <h3>Movimientos</h3>
       {d.ledger.length ? <LedgerTable rows={d.ledger} onCorrect={startCorrection} /> : <p className="muted">Sin movimientos.</p>}
       {d.openings.length > 0 && (<><h3>Aperturas</h3><OpeningList rows={d.openings} /></>)}
@@ -907,9 +909,9 @@ function UserAdmin({ d, reload, self }: { d: UserDetail; reload: () => void; sel
   );
 }
 
-/** Asignar o retirar un personaje secreto (Thanos): motivo obligatorio, confirmación con el destinatario y auditoría. */
+/** Asignar o retirar un personaje: motivo obligatorio, confirmación con el destinatario y auditoría. */
 function SecretAdmin({ d, reload }: { d: UserDetail; reload: () => void }) {
-  const [hero] = useState<HeroId>(SECRET_IDS[0]);
+  const [hero, setHero] = useState<HeroId>(SECRET_IDS[0]);
   const [reason, setReason] = useState('');
   const [preview, setPreview] = useState<(SecretPreview & { key: string }) | null>(null);
   const [busy, setBusy] = useState(false);
@@ -919,9 +921,17 @@ function SecretAdmin({ d, reload }: { d: UserDetail; reload: () => void }) {
   const body = () => ({ userId: d.user.id, hero, action, reason: reason.trim() });
   return (
     <div className="secret-admin">
-      <h3>Personaje secreto: {HEROES[hero].name}</h3>
+      <h3>Entregar o retirar personajes</h3>
+      <label className="block">Personaje
+        <select value={hero} disabled={busy} onChange={(e) => { setHero(e.target.value as HeroId); setPreview(null); setMsg(null); }}>
+          {byRarity(HERO_IDS).map((h) => <option key={h} value={h}>{HEROES[h].name} · {RARITY_LABEL[HERO_CATALOG[h].rarity]}{HERO_CATALOG[h].starter ? ' · Inicial' : ''}</option>)}
+        </select>
+      </label>
+      <div className={`admin-hero-summary r-${HERO_CATALOG[hero].rarity}`}>
+        <HeroBadge hero={hero} size={48} /><div><b>{HEROES[hero].name}</b><br /><RarityTag rarity={HERO_CATALOG[hero].rarity} /></div>
+      </div>
       <p className="muted small">
-        {has ? `${d.user.name} lo tiene.` : `${d.user.name} no lo tiene.`} No sale en cofres ni cuenta en la colección pública; quien lo tiene lo usa en todos los modos.
+        {has ? `${d.user.name} lo tiene.` : `${d.user.name} no lo tiene.`} {isSecret(hero) ? 'Es secreto: solo aparece en el selector y colección de quien lo tiene. No sale en cofres.' : HERO_CATALOG[hero].starter ? 'Es inicial y gratuito; no se puede retirar.' : 'La entrega se guarda en su colección sin gastar monedas ni Fragmentos.'}
       </p>
       <form
         className="grant"
@@ -930,7 +940,7 @@ function SecretAdmin({ d, reload }: { d: UserDetail; reload: () => void }) {
           setBusy(true);
           setMsg(null);
           try {
-            const pv = await account.call<SecretPreview>('POST', '/api/admin/secret/preview', body());
+            const pv = await account.call<SecretPreview>('POST', '/api/admin/heroes/preview', body());
             setPreview({ ...pv, key: newKey() });
           } catch (er) {
             setMsg({ ok: false, text: errText(er) });
@@ -940,10 +950,10 @@ function SecretAdmin({ d, reload }: { d: UserDetail; reload: () => void }) {
         }}
       >
         <label className="block">Motivo (obligatorio, queda en la auditoría)
-          <input value={reason} minLength={5} maxLength={200} required onChange={(e) => { setReason(e.target.value); setPreview(null); }} />
+          <input value={reason} minLength={5} maxLength={200} required disabled={busy} onChange={(e) => { setReason(e.target.value); setPreview(null); }} />
         </label>
         <div className="btn-row">
-          <button type="submit" disabled={busy}>{has ? `Revisar retiro de ${HEROES[hero].name}` : `Revisar asignación de ${HEROES[hero].name}`}</button>
+          <button type="submit" disabled={busy || HERO_CATALOG[hero].starter}>{has ? `Revisar retiro de ${HEROES[hero].name}` : `Revisar asignación de ${HEROES[hero].name}`}</button>
         </div>
       </form>
       {preview && (
@@ -960,7 +970,7 @@ function SecretAdmin({ d, reload }: { d: UserDetail; reload: () => void }) {
               onClick={async () => {
                 setBusy(true);
                 try {
-                  await account.mutate('/api/admin/secret', body(), `${preview.action === 'grant' ? 'Asignar' : 'Retirar'} ${preview.heroName} a ${preview.name}`, preview.key);
+                  await account.mutate('/api/admin/heroes', { userId: preview.userId, hero: preview.hero, action: preview.action, reason: preview.reason }, `${preview.action === 'grant' ? 'Asignar' : 'Retirar'} ${preview.heroName} a ${preview.name}`, preview.key);
                   setMsg({ ok: true, text: `Listo: ${preview.heroName} ${preview.action === 'grant' ? 'asignado a' : 'retirado de'} ${preview.name}. Verá un aviso al entrar.` });
                   setReason('');
                   setPreview(null);

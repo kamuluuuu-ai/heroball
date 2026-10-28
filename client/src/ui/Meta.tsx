@@ -69,8 +69,13 @@ function noticeText(n: Notice): string {
   }
   if (n.kind === 'grant') return `Recibiste ${amounts()}. Motivo: ${p.reason}.`;
   if (n.kind === 'correction') return `Corrección de saldo: ${amounts()}. Motivo: ${p.reason}.`;
-  if (n.kind === 'hero_grant') return `Recibiste un personaje especial: ${HEROES[p.hero as HeroId]?.name ?? p.hero}. Lo podés usar en todos los modos. Motivo: ${p.reason}.`;
-  if (n.kind === 'hero_revoke') return `Se retiró el personaje especial ${HEROES[p.hero as HeroId]?.name ?? p.hero} de tu colección. Motivo: ${p.reason}.`;
+  if (n.kind === 'hero_grant') {
+    const name = HEROES[p.hero as HeroId]?.name ?? p.hero;
+    return isSecret(p.hero as HeroId)
+      ? `Recibiste un personaje especial: ${name}. Lo podés usar en todos los modos. Motivo: ${p.reason}.`
+      : `Recibiste a ${name} en tu colección. Motivo: ${p.reason}.`;
+  }
+  if (n.kind === 'hero_revoke') return `Se retiró a ${HEROES[p.hero as HeroId]?.name ?? p.hero} de tu colección. Motivo: ${p.reason}.`;
   return 'Aviso nuevo.';
 }
 

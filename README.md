@@ -174,8 +174,9 @@ Capturas reales tomadas del servidor local con PostgreSQL embebido y cuentas de 
 - Correcciones: sólo como movimiento compensatorio que referencia al original (*Corregir* en una entrega). Nada se
   edita ni se borra.
 - El destinatario ve un aviso la próxima vez que entra, aunque estuviera desconectado.
-- **Personaje secreto (Thanos)**: en el detalle de la cuenta, *Revisar asignación* / *Revisar retiro* con motivo
-  obligatorio; la confirmación nombra al destinatario y su id. Es idempotente, no duplica, no toca otros héroes y
+- **Entregar o retirar personajes** (cualquiera no inicial, incluido Thanos): en el detalle de la cuenta se elige el
+  personaje y *Revisar asignación* / *Revisar retiro* con motivo obligatorio (`/api/admin/heroes`, rol
+  `economy_admin` comprobado en el servidor). Los iniciales son gratis para todos y no se retiran; la confirmación nombra al destinatario y su id. Es idempotente, no duplica, no toca otros héroes y
   queda en la auditoría `hero_grant` (sólo inserción) con quién, cuándo y por qué. Al retirarlo, si lo tenía
   equipado vuelve a Spider-Man, y si estaba en una sala deja de valer en el próximo saque.
 - Moderación en salas: con rol `moderator`, en el servidor el rol llega con la sesión verificada; en salas P2P el
@@ -287,7 +288,7 @@ Reglas comunes:
 - CJ conserva sus balas y su recarga al cambiar de héroe, abrir el menú o reconectarse (el servidor las guarda por
   cuenta durante el partido).
 
-**Thanos (secreto)**: no sale en cofres, catálogos públicos, contadores, bots ni en la colección de quien no lo
+**Thanos (rareza propia *Secreto*, en negro)**: no sale en cofres, catálogos públicos, contadores, bots ni en la colección de quien no lo
 tiene. Lo asigna o retira un administrador (motivo obligatorio y auditoría). Quien lo tiene lo usa en **todos los
 modos**: entrenamiento, contra bots, salas P2P y salas del servidor (casuales u oficiales, con las recompensas
 normales). La propiedad nunca sale del navegador: sin conexión se usa la colección que devuelve el servidor; en el
@@ -363,11 +364,11 @@ dibuja radios, alcance de patada y posiciones de red.
 ## Pruebas
 
 ```bash
-npm test          # 262 pruebas (incluye PostgreSQL embebido real en tests/db.test.ts)
+npm test          # 269 pruebas (incluye PostgreSQL embebido real en tests/db.test.ts)
 npm run typecheck
 ```
 
-Última ejecución: 15 archivos, 262 pruebas, todas pasan. `tests/render.test.ts` dibuja partidas con todos los efectos nuevos sobre un canvas simulado. `tests/newheroes.test.ts` cubre los seis personajes
+Última ejecución: 16 archivos, 269 pruebas, todas pasan. `tests/render.test.ts` dibuja partidas con todos los efectos nuevos sobre un canvas simulado. `tests/newheroes.test.ts` cubre los seis personajes
 nuevos en Héroes y Súper, el autoapuntado (pelota, rivales, aliados, pelota protegida, poste, fuera de alcance,
 punto de caída de la TNT), las tres balas y la recarga de CJ, rosquilla, charco, crecimiento sin superposición,
 quiz (respuesta, error, tiempo, inmunidad, bots), TNT al reiniciar y al desconectarse, historial que no cruza

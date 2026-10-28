@@ -170,7 +170,8 @@ export class NetClient {
     if (!this.p2p || !this.nonce) return;
     const mine = SECRET_IDS.filter((h) => account.owned().has(h));
     const key = mine.join(',');
-    if (!mine.length || key === this.provedHeroes) return;
+    // nada que presentar, salvo que antes se presentó algo (un retiro: se presenta la lista nueva)
+    if (key === this.provedHeroes || (!mine.length && this.provedHeroes === '')) return;
     this.provedHeroes = key;
     const t = this.transport;
     const nonce = this.nonce;

@@ -215,3 +215,21 @@ describe('personajes secretos en salas P2P (firma del servidor)', () => {
     expect(heroOf(r, 'b')).not.toBe('thanos');
   });
 });
+
+it('P2P: una lista firmada nueva sin Thanos (retiro) lo saca de la sala', async () => {
+  const lobby = new Lobby();
+  const { r } = hostRoom(lobby);
+  const g = connect(lobby, 'g');
+  const n = nonceOf(g);
+  g.say({ t: 'join', room: r.id });
+  g.say({ t: 'heroes', heroes: ['thanos'], sig: await signHeroes(priv, n, 'g', ['thanos']) });
+  await until(() => g.msgs.some((m) => m.t === 'heroes'));
+  g.say({ t: 'hero', hero: 'thanos' });
+  expect(r.members.get('g')!.hero).toBe('thanos');
+  g.msgs.length = 0;
+  g.say({ t: 'heroes', heroes: [], sig: await signHeroes(priv, n, 'g', []) });
+  await until(() => g.msgs.some((m) => m.t === 'heroes'));
+  expect(r.members.get('g')!.hero).toBe('spider');
+  g.say({ t: 'hero', hero: 'thanos' });
+  expect(r.members.get('g')!.hero).toBe('spider');
+});

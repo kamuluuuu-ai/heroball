@@ -93,7 +93,13 @@ export function createHandler(lobby: Lobby, client: Client, opts: HandlerOptions
       if (lobby.official) return;
       if (++heroTries > 5) return reject('Demasiados intentos.');
       void verifyHeroes(m.sig, nonce, client.id, m.heroes, opts.adminPublicKey).then((ok) => {
-        if (ok) client.owned = new Set(m.heroes.filter(isSecret));
+        if (ok) {
+          client.owned = new Set(m.heroes.filter(isSecret));
+          // lista nueva sin el personaje que estaba usando (retiro): vuelve a Spider-Man
+          const r = client.room;
+          const me = r?.members.get(client.id);
+          if (r && me && isSecret(me.hero) && !r.heroAllowed(client, me.hero)) r.setHero(client.id, 'spider');
+        }
         client.send({ t: 'heroes', ok });
       });
       return;

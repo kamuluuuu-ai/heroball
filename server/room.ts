@@ -245,12 +245,12 @@ export class Room {
     p.gemCd = [...k.gemCd];
   }
 
-  /** La colección de una cuenta cambió: si su personaje especial ya no vale, pasa a Spider-Man en el próximo saque. */
+  /** La colección de una cuenta cambió: si su héroe ya no vale en esta sala, pasa a Spider-Man en el próximo saque. */
   ownedChanged(userId: string, owned: Set<HeroId>): void {
     for (const m of this.members.values()) {
       if (m.client?.userId !== userId) continue;
       m.client.owned = owned;
-      if (isSecret(m.hero) && !this.heroAllowed(m.client, m.hero)) {
+      if (!this.heroAllowed(m.client, m.hero)) {
         m.hero = 'spider';
         if (this.game) requestHero(this.game, m.id, 'spider');
         this.sendRoom();

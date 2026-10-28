@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { HEROES, SECRET_IDS, type HeroId } from '../../../shared/config';
+import { HEROES, SECRET_IDS, isSecret, visibleHeroSelection, type HeroId } from '../../../shared/config';
 import { ECONOMY } from '../../../shared/economy';
 import { DEFAULT_SETTINGS, MAX_NICK, MAX_ROOM_NAME, type RoomInfo, type RoomMember, type RoomSettings } from '../../../shared/protocol';
 import type { GameMode, Side, Team } from '../../../shared/types';
@@ -139,6 +139,14 @@ export function App() {
     if (equipped && equipped !== prefs.hero) setPrefs({ ...prefs, hero: equipped });
   }, [equipped]); // eslint-disable-line
 
+  // una selección guardada de un personaje secreto que la cuenta ya no tiene (o de otra cuenta) vuelve a Spider-Man
+  const ownedSecretsKey = SECRET_IDS.filter((h) => acc.owned().has(h)).join(',');
+  useEffect(() => {
+    n.proveHeroes();
+    if (acc.status === 'checking' || !isSecret(prefs.hero)) return;
+    if (!ownedSecretsKey.split(',').includes(prefs.hero)) setPrefs({ ...prefs, hero: 'spider' });
+  }, [acc.status, ownedSecretsKey, prefs.hero]); // eslint-disable-line
+
   if (screen.k === 'online') return n.room ? <OnlineRoom prefs={prefs} setPrefs={setPrefs} /> : null;
   if (screen.k === 'offline') return <OfflineGame prefs={prefs} setPrefs={setPrefs} nick={nick} opts={screen.opts} onExit={() => setScreen({ k: 'home' })} />;
 
@@ -263,12 +271,13 @@ function PlayTab({ prefs, setPrefs, nick, onOffline, onLogin, onHeroes }: {
   if (offline) return <OfflineSetup kind={offline} prefs={prefs} setPrefs={setPrefs} onCancel={() => setOffline(null)} onStart={onOffline} />;
 
   const signed = acc.status === 'signed';
+  const shownHero = visibleHeroSelection(prefs.hero, SECRET_IDS.filter((h) => acc.owned().has(h)));
   return (
     <>
       <div className="lobby-head">
         {signed ? <span>Jugando como <b>{nick}</b> <span className="verified" title="Cuenta verificada por el servidor">✔ cuenta</span></span> : <NickField prefs={prefs} setPrefs={setPrefs} />}
         <span className="hero-now">
-          <HeroBadge hero={prefs.hero} size={22} team="red" /> {HEROES[prefs.hero].name} <button className="link" onClick={onHeroes}>cambiar</button>
+          <HeroBadge hero={shownHero} size={22} team="red" /> {HEROES[shownHero].name} <button className="link" onClick={onHeroes}>cambiar</button>
         </span>
       </div>
       <div className="play-cards">

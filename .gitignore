@@ -5,3 +5,4 @@ node_modules
 *clave-admin*
 .data
 .env
+docs/backups

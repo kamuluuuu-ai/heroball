@@ -338,24 +338,6 @@ function placeholder(fill: string, letter: string) {
   };
 }
 
-/**
- * MARCADOR PROVISIONAL (falta el retrato definitivo): disco con la inicial y
- * un anillo punteado, para que se note que no es la imagen del personaje.
- */
-function provisional(fill: string, letter: string) {
-  const inner = placeholder(fill, letter);
-  return (c: Ctx, r: number) => {
-    inner(c, r);
-    c.save();
-    c.setLineDash([r * 0.22, r * 0.16]);
-    c.lineWidth = Math.max(1, r * 0.1);
-    c.strokeStyle = 'rgba(255,255,255,0.85)';
-    circle(c, 0, 0, r * 0.86);
-    c.stroke();
-    c.restore();
-  };
-}
-
 const DRAW: Record<HeroId, (c: Ctx, r: number) => void> = {
   spider, batman, hulk, superman, hawkeye, widow, cap, panther, ironman, flash, thor, strange,
   homer: placeholder('#E8C520', 'H'),
@@ -364,16 +346,17 @@ const DRAW: Record<HeroId, (c: Ctx, r: number) => void> = {
   ibai: placeholder('#7A4FB3', 'I'),
   verity: placeholder('#C2185B', 'V'),
   thanos: placeholder('#6A3FA0', 'T'),
-  bendy: provisional('#1a1a1a', 'B'),
-  jeff: provisional('#2F7FC1', 'J'),
-  goku: provisional('#E8741E', 'G'),
+  bendy: placeholder('#1a1a1a', 'B'),
+  jeff: placeholder('#2F7FC1', 'J'),
+  goku: placeholder('#E8741E', 'G'),
 };
-const DRAW_SUPER_GOKU = provisional('#E2B23B', 'G');
+const DRAW_SUPER_GOKU = placeholder('#E2B23B', 'G');
 
 // ---- retratos con las imágenes del usuario (recortes circulares en public/heroes)
 type PortraitKey = HeroId | 'verity-angry' | 'goku-super';
 const PORTRAIT_FILE: Partial<Record<PortraitKey, string>> = {
   homer: 'homer.png', cj: 'cj.png', baldi: 'baldi.png', ibai: 'ibai.png', verity: 'verity.png', 'verity-angry': 'verity-angry.png', thanos: 'thanos.png',
+  bendy: 'bendy.png', jeff: 'jeff.png', goku: 'goku.png', 'goku-super': 'goku-super.png',
 };
 const portraits = new Map<PortraitKey, HTMLImageElement>();
 const loadedListeners = new Set<() => void>();

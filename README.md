@@ -436,12 +436,6 @@ respuesta que se confirma con la misma clave.
   almacenamiento compartido.
 - Salas en memoria: se pierden al reiniciar el servidor (las cuentas y la economía no).
 
-- **Retratos de Bendy, Jeff y Goku**: son marcadores provisionales (disco con la inicial y anillo punteado). Se
-  buscaron imágenes con licencia reutilizable y sólo aparecieron fotos de cosplay, figuras y logos; los personajes
-  tienen derechos de sus dueños (Joey Drew Studios, Marvel, Bird Studio/Shueisha/Toei), así que no se descargó
-  ninguna. Para poner retratos reales, copiar PNG 256×256 en `client/public/heroes/` (`bendy.png`, `jeff.png`,
-  `goku.png`, `goku-super.png`) y agregarlos a `PORTRAIT_FILE` en `client/src/game/heroArt.ts`.
-
 ## Licencia
 
 MIT. Ver [LICENSE](LICENSE). HeroBall es un proyecto independiente; HaxBall es una marca de sus respectivos dueños.

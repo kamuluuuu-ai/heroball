@@ -34,6 +34,9 @@ const MIME: Record<string, string> = {
   '.webmanifest': 'application/manifest+json',
 };
 
+// commit desplegado (Render lo define solo); sirve para comprobar que el backend está al día
+const VERSION = (process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || 'local').slice(0, 7);
+
 function fail(msg: string): never {
   console.error(`Configuración inválida: ${msg}`);
   process.exit(1);
@@ -82,7 +85,7 @@ const http = createServer(async (req, res) => {
   if (url.pathname === '/api/health' || url.pathname === '/api/rooms') {
     if (applyCors(req, res, ORIGINS)) return;
     res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-    res.end(JSON.stringify(url.pathname === '/api/health' ? { ok: true, rooms: lobby.rooms.size, economy: !!economy } : lobby.list()));
+    res.end(JSON.stringify(url.pathname === '/api/health' ? { ok: true, rooms: lobby.rooms.size, economy: !!economy, version: VERSION } : lobby.list()));
     return;
   }
   if (api && (await api(req, res))) return;

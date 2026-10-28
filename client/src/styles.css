@@ -119,6 +119,7 @@ label.block { display: flex; flex-direction: column; gap: 3px; }
 .hero-powers { display: flex; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
 .hero-power { display: flex; gap: 6px; align-items: center; flex: 1 1 220px; background: var(--panel2); padding: 4px 6px; border-radius: 3px; font-size: 12px; }
 .power-icon { width: 28px; height: 28px; background: #2b3a45; border-radius: 3px; flex: none; }
+.passive-icon { display: inline-flex; align-items: center; justify-content: center; color: #ffd23f; font-size: 16px; }
 
 /* ---------- partido ---------- */
 .game-root { height: 100%; display: flex; flex-direction: column; touch-action: none; }
@@ -563,3 +564,25 @@ table.ledger tr.sel { background: rgba(255, 255, 255, 0.06); }
   .room-row span:nth-child(4) { display: inline; }
 }
 .team-head:disabled { opacity: 1; cursor: default; }
+
+/* Línea de estado de héroes nuevos (tragado, bloqueo de Jeff, ki de Goku): visible también en táctil. */
+.hud-note {
+  position: absolute;
+  left: 50%;
+  top: 8px;
+  transform: translateX(-50%);
+  max-width: 92%;
+  padding: 4px 10px;
+  background: rgba(17, 22, 25, 0.85);
+  border: 2px solid #3c4a52;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  pointer-events: none;
+  z-index: 4;
+}
+.hud-note[data-kind='eaten'] { border-color: #2f7fc1; background: rgba(10, 30, 55, 0.92); font-size: 15px; }
+.hud-note[data-kind='jeff'], .hud-note[data-kind='lock'] { border-color: #2f7fc1; }
+.hud-note[data-kind='ki'] { border-color: #ffd23f; color: #ffe9a0; }

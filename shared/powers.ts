@@ -17,9 +17,13 @@
 // - Incapacidades (stun, rosquilla, mente): no se suman (prevalece el mayor
 //   tiempo restante), tope STUN.maxTicks seguidos y luego inmunidad. El quiz de
 //   Baldi tiene reglas propias (duración máxima e inmunidad BALDI_QUIZ).
-// - La rosquilla sobre la pelota reduce patadas e impulsos de poderes; la
-//   protección del Capitán la quita y la bloquea.
-import { AIM, BALDI_QUIZ, LIMITS, PLAYER, POWER_LIMITS, STADIUM, STUN, powersFor, type PowerConfig } from './config';
+// - La rosquilla sobre la pelota reduce patadas e impulsos de poderes y además
+//   la protege (misma protección que el Capitán, sin prolongarse con otra rosquilla).
+// - Un jugador tragado por Jeff está fuera de la física y de todo objetivo
+//   hasta que lo escupe o se interrumpe (gol, reinicio, salida de cualquiera).
+// - La tinta de Bendy sólo afecta a rivales y nunca deja la pantalla negra:
+//   secuencia continua máxima INK.maxRun y luego inmunidad.
+import { AIM, BALDI_QUIZ, INK, KICK, LIMITS, PLAYER, POWER_LIMITS, STADIUM, STUN, powersFor, type PowerConfig } from './config';
 import { clampSpeed, collideSeg, lineBlocked, stadium } from './physics';
 import { inNum, type GameState, type PlayerState, type Projectile, type Zone } from './types';
 
@@ -57,6 +61,8 @@ export function accelMult(s: GameState, p: PlayerState): number {
   if (p.jet > 0) m *= c.cj.jetpack.accelMult;
   if (p.anger > 0) m *= c.verity.anger.accelMult;
   if (p.giant > 0) m *= c.ibai.giant.accelMult;
+  if (p.inkForm > 0) m *= c.bendy.form.speedMult;
+  if (p.hero === 'goku') m *= c.goku.speedMult;
   // charco de cerveza: menos agarre (cuesta frenar y girar)
   if (p.slip > 0) m *= 1 - (1 - c.homer.beer.grip) * p.slip;
   return m;
@@ -75,6 +81,12 @@ export function speedLimitMult(s: GameState, p: PlayerState): number {
   if (p.capSlowTicks > 0) m *= 1 - p.capSlow;
   if (p.jet > 0) m *= c.cj.jetpack.speedMult;
   if (p.anger > 0) m *= c.verity.anger.speedMult;
+  if (p.inkForm > 0) m *= c.bendy.form.speedMult;
+  if (p.hero === 'goku') m *= c.goku.speedMult;
+  // cargar el Kamehameha, disparar el chorro o llevar a alguien adentro frenan
+  if (p.charge > 0) m *= c.goku.kame.moveMult;
+  if (p.spray > 0) m *= c.jeff.water.moveMult;
+  if (p.holding) m *= 1 - c.jeff.swallow.carrySlow;
   return m;
 }
 
@@ -93,9 +105,22 @@ export function kickMult(s: GameState, p: PlayerState): number {
   return m;
 }
 
-/** Gema del Poder pendiente: multiplicador de la próxima patada (la protección del Capitán lo anula). */
+/** Gema del Poder o Transmisión instantánea pendientes: multiplicador de la próxima patada (la protección lo anula). */
 export function powerKickMult(s: GameState, p: PlayerState): number {
-  return p.powerKick > 0 && !ballGuarded(s) ? cfg(s).thanos.power.kickMult : 1;
+  if (ballGuarded(s)) return 1;
+  if (p.powerKick > 0) return cfg(s).thanos.power.kickMult;
+  if (p.blinkKick > 0) return cfg(s).goku.blink.kickMult;
+  return 1;
+}
+
+/** ¿Puede patear? (forma de tinta de Bendy y Jeff con alguien adentro: no). */
+export function canKick(p: PlayerState): boolean {
+  return p.inkForm === 0 && p.holding === null && p.eatenBy === null;
+}
+
+/** ¿Está en juego? Un jugador tragado no choca ni es objetivo de nada. */
+export function inPlay(p: PlayerState): boolean {
+  return p.eatenBy === null;
 }
 
 /** Factor de los impulsos extra (patadas y poderes) que recibe la pelota: la rosquilla los reduce. */
@@ -112,9 +137,9 @@ export function playerInvMass(s: GameState, p: PlayerState): number {
   return PLAYER.invMass / mult;
 }
 
-/** ¿El jugador no puede actuar (stun, control mental o quiz)? La rosquilla sólo impide moverse. */
+/** ¿El jugador no puede actuar (stun, control mental, quiz o tragado)? La rosquilla sólo impide moverse. */
 export function incapacitated(p: PlayerState): boolean {
-  return p.stun > 0 || p.mind > 0 || p.quiz !== null;
+  return p.stun > 0 || p.mind > 0 || p.quiz !== null || p.eatenBy !== null;
 }
 
 /** ¿Algún rival está bajo el control mental de este jugador? */
@@ -140,7 +165,8 @@ function pushBall(s: GameState, ux: number, uy: number, impulse: number, owner: 
 }
 
 /** Impulso a un jugador según su masa y su resistencia a poderes, con tope de velocidad. */
-function pushPlayer(s: GameState, o: PlayerState, ux: number, uy: number, impulse: number): void {
+export function pushPlayer(s: GameState, o: PlayerState, ux: number, uy: number, impulse: number): void {
+  if (!inPlay(o)) return;
   const k = impulse * o.d.invMass * pushFactor(s, o);
   o.d.vx += ux * k;
   o.d.vy += uy * k;
@@ -153,8 +179,8 @@ function pushPlayer(s: GameState, o: PlayerState, ux: number, uy: number, impuls
  * STUN.immuneTicks de inmunidad a todas.
  */
 export function applyIncap(s: GameState, o: PlayerState, kind: 'stun' | 'trap' | 'mind', ticks: number, by: string | null = null): boolean {
-  if (ticks <= 0 || o.stunImmune > 0) return false;
-  const t = Math.min(ticks, STUN.maxTicks - o.incapRun);
+  if (ticks <= 0 || o.stunImmune > 0 || !inPlay(o)) return false;
+  const t = Math.min(ticks, Math.max(STUN.maxTicks, o.incapCap) - o.incapRun);
   if (t <= Math.max(o.stun, o.trap, o.mind)) return false;
   o.stun = kind === 'stun' ? t : 0;
   o.trap = kind === 'trap' ? t : 0;
@@ -173,6 +199,42 @@ export function applyIncap(s: GameState, o: PlayerState, kind: 'stun' | 'trap' |
 /** Aturde a un jugador (ver applyIncap). */
 export function applyStun(s: GameState, o: PlayerState, ticks: number): boolean {
   return applyIncap(s, o, 'stun', ticks);
+}
+
+/**
+ * Penalización del quiz de Baldi: un aturdimiento propio (puede superar
+ * STUN.maxTicks e ignora la inmunidad), una sola vez por quiz. Después corre la
+ * inmunidad normal.
+ */
+function penaltyStun(s: GameState, o: PlayerState, ticks: number): void {
+  if (ticks <= 0 || !inPlay(o)) return;
+  o.stun = Math.max(o.stun, ticks);
+  o.trap = 0;
+  o.mind = 0;
+  o.mindBy = null;
+  o.stunImmune = 0;
+  o.incapCap = Math.max(o.incapCap, o.incapRun + ticks);
+  o.kickArmed = false;
+  o.rush = 0;
+  o.dash = 0;
+  s.events.push({ type: 'stun', id: o.id, ticks });
+}
+
+/**
+ * Tinta de Bendy en la pantalla de un rival: no se suma (vale el tiempo
+ * restante mayor), una secuencia continua no pasa de INK.maxRun y después hay
+ * INK.immuneTicks de inmunidad.
+ */
+function applyInk(s: GameState, o: PlayerState, ticks: number): boolean {
+  if (ticks <= 0 || o.inkImmune > 0 || !inPlay(o)) return false;
+  const t = Math.min(ticks, INK.maxRun - o.inkRun);
+  if (t <= o.ink) return false;
+  if (o.ink === 0) {
+    o.inkSeed = s.tick;
+    s.events.push({ type: 'ink', id: o.id });
+  }
+  o.ink = t;
+  return true;
 }
 
 export interface AimTarget {
@@ -247,7 +309,7 @@ export function pickTarget(s: GameState, p: PlayerState, o: { range: number; bal
   if (o.ball && !ballGuarded(s)) cands.push({ t: { kind: 'ball', id: null, x: s.ball.x, y: s.ball.y }, r: s.ball.r });
   if (o.rivals) {
     for (const q of s.players) {
-      if (q.team !== p.team && (!o.filter || o.filter(q))) cands.push({ t: { kind: 'player', id: q.id, x: q.d.x, y: q.d.y }, r: q.d.r });
+      if (q.team !== p.team && inPlay(q) && (!o.filter || o.filter(q))) cands.push({ t: { kind: 'player', id: q.id, x: q.d.x, y: q.d.y }, r: q.d.r });
     }
   }
   let best: AimTarget | null = null;
@@ -323,7 +385,7 @@ export function boltTarget(s: GameState, p: PlayerState): PlayerState | null {
   let best: PlayerState | null = null;
   let bestD = Infinity;
   for (const o of s.players) {
-    if (o.team === p.team) continue;
+    if (o.team === p.team || !inPlay(o)) continue;
     const dx = o.d.x - p.d.x;
     const dy = o.d.y - p.d.y;
     const dist = Math.hypot(dx, dy);
@@ -382,9 +444,18 @@ export function powerActive(s: GameState, p: PlayerState, slot: 'q' | 'e'): bool
     case 'cj': return q ? false : p.jet > 0;
     case 'baldi': return q ? proj('ruler') : zone('quiz') || s.players.some((o) => o.quiz?.by === p.id);
     case 'ibai': return q ? zone('punch') : p.giant > 0;
-    case 'verity': return q ? p.anger > 0 : zone('tnt');
+    // varias TNT a la vez: sólo bloquea el tope de TNT activas
+    case 'verity': return q ? p.anger > 0 : tntCount(s, p) >= cfg(s).verity.tnt.maxActive;
     case 'thanos': return q ? gemActive(s, p, p.gem) : false;
+    case 'bendy': return q ? zone('ink') : p.inkForm > 0;
+    case 'jeff': return q ? p.spray > 0 : p.holding !== null;
+    case 'goku': return q ? p.charge > 0 || zone('kame') : false;
   }
+}
+
+/** TNT de esta Verity todavía sin explotar. */
+export function tntCount(s: GameState, p: PlayerState): number {
+  return s.zones.filter((z) => z.owner === p.id && z.kind === 'tnt' && z.delay > 0).length;
 }
 
 const GEMS = ['time', 'mind', 'reality', 'space', 'power'] as const;
@@ -406,8 +477,19 @@ function movesSelf(p: PlayerState, slot: 'q' | 'e'): boolean {
     case 'spider': case 'batman': case 'hawkeye': case 'widow': case 'strange': return slot === 'e';
     case 'panther': return slot === 'q';
     case 'thanos': return slot === 'q' && GEMS[p.gem] === 'space';
+    case 'goku': return slot === 'e';
     default: return false;
   }
+}
+
+/** ¿El saque todavía bloquea Tragar? (preparación del saque y los primeros segundos de juego, también sin cooldowns). */
+export function swallowLocked(s: GameState): boolean {
+  return s.phase !== 'playing' || s.liveTicks < cfg(s).jeff.swallow.kickoffLock;
+}
+
+/** ¿Goku tiene el ki lleno (próxima Q o E potenciada)? */
+export function kiReady(s: GameState, p: PlayerState): boolean {
+  return p.hero === 'goku' && p.ki >= cfg(s).goku.ki.max;
 }
 
 /** Intenta activar Q o E. Devuelve true si se activó (y entonces corre la recarga). */
@@ -415,6 +497,15 @@ export function activate(s: GameState, p: PlayerState, slot: 'q' | 'e'): boolean
   if (incapacitated(p)) return false;
   if (p.trap > 0 && movesSelf(p, slot)) return false;
   if (p.hero === 'thanos') return slot === 'q' ? activateGem(s, p) : nextGem(s, p);
+  // escupir funciona aunque la recarga ya esté corriendo; la segunda transmisión gratis también
+  if (p.hero === 'jeff' && slot === 'e' && p.holding) {
+    const v = findPlayer(s, p.holding);
+    if (v) releaseVictim(s, v, p, true);
+    return true;
+  }
+  if (p.hero === 'goku' && slot === 'e' && p.freeBlink > 0) return gokuBlink(s, p, true);
+  // forma de tinta o alguien adentro: sin Q
+  if (slot === 'q' && (p.inkForm > 0 || p.holding)) return false;
   if (slot === 'q' ? p.cdQ > 0 : p.cdE > 0) return false;
   if (s.noCd && powerActive(s, p, slot)) return false;
   // topes técnicos: sin lugar para más objetos, no se activa (ni gasta recarga)
@@ -526,7 +617,7 @@ export function activate(s: GameState, p: PlayerState, slot: 'q' | 'e'): boolean
           s.events.push({ type: 'fizzle', id: p.id, slot });
           return false;
         }
-        protectBall(s, p, c.ticks);
+        protectBall(s, p.id, c.ticks);
         cd = c.cooldown;
       }
       break;
@@ -661,6 +752,8 @@ export function activate(s: GameState, p: PlayerState, slot: 'q' | 'e'): boolean
           return false;
         }
         const z = addZone(s, p, 'punch', p.d.x, p.d.y, p.d.r, c.windup, c.windup + PUNCH_AFTER);
+        // una sola vez: al conectar se aturde (lo marca `hits`)
+        z.hits = [];
         z.target = t.id;
         const d = Math.hypot(t.d.x - p.d.x, t.d.y - p.d.y) || 1;
         z.dx = (t.d.x - p.d.x) / d;
@@ -677,6 +770,11 @@ export function activate(s: GameState, p: PlayerState, slot: 'q' | 'e'): boolean
         cd = P.verity.anger.cooldown;
       } else {
         const c = P.verity.tnt;
+        // tope de TNT activas: se rechaza sin gastar la recarga (el HUD lo indica)
+        if (tntCount(s, p) >= c.maxActive) {
+          s.events.push({ type: 'fizzle', id: p.id, slot });
+          return false;
+        }
         // punto de caída fijo al lanzar: el objetivo autoapuntado (anticipado) o el alcance máximo
         let tx = aim ? aim.x : p.d.x + p.ax * c.range;
         let ty = aim ? aim.y : p.d.y + p.ay * c.range;
@@ -694,6 +792,62 @@ export function activate(s: GameState, p: PlayerState, slot: 'q' | 'e'): boolean
         cd = c.cooldown;
       }
       break;
+    case 'bendy':
+      if (slot === 'q') {
+        const c = P.bendy.puddle;
+        const [tx, ty] = puddleSpot(s, p);
+        const z = addZone(s, p, 'ink', tx, ty, c.radius, c.flightTicks, c.flightTicks + c.ticks);
+        z.hits = [];
+        z.pts.push({ x: p.d.x, y: p.d.y, t: s.tick });
+        cd = c.cooldown;
+      } else {
+        const c = P.bendy.form;
+        p.inkForm = c.ticks;
+        // un solo rastro por Bendy: el anterior se termina de desvanecer solo
+        const z = addZone(s, p, 'inkTrail', p.d.x, p.d.y, c.radius, 0, c.ticks + c.segTicks);
+        z.pts.push({ x: p.d.x, y: p.d.y, t: s.tick });
+        cd = c.cooldown;
+      }
+      break;
+    case 'jeff':
+      if (slot === 'q') {
+        const c = P.jeff.water;
+        // dirección fija: hacia donde miraba al activarlo (no persigue)
+        p.spray = c.ticks;
+        p.sprayDx = p.ax;
+        p.sprayDy = p.ay;
+        const z = addZone(s, p, 'water', p.d.x, p.d.y, c.halfWidth, 0, c.ticks);
+        z.dx = p.ax;
+        z.dy = p.ay;
+        z.len = rayFree(p.d.x + p.ax * p.d.r, p.d.y + p.ay * p.d.r, p.ax, p.ay, c.range);
+        cd = c.cooldown;
+      } else {
+        const c = P.jeff.swallow;
+        // tras el saque no se puede (tampoco sin cooldowns): se rechaza sin gastar nada
+        if (swallowLocked(s)) {
+          s.events.push({ type: 'fizzle', id: p.id, slot });
+          return false;
+        }
+        const v = swallowTarget(s, p);
+        if (!v) {
+          s.events.push({ type: 'fizzle', id: p.id, slot });
+          cd = c.missCooldown;
+          break;
+        }
+        swallow(s, p, v);
+        cd = c.cooldown;
+      }
+      break;
+    case 'goku':
+      if (slot === 'q') {
+        // empieza la carga; sale al soltar Q (chargeInput). Con el ki lleno, carga potenciada.
+        p.charge = 1;
+        p.chargeKi = kiReady(s, p);
+        if (p.chargeKi) p.ki = 0;
+        s.events.push({ type: 'power', id: p.id, slot, hero: p.hero });
+        return true;
+      }
+      return gokuBlink(s, p, false);
   }
   if (s.noCd) cd = 0;
   if (slot === 'q') p.cdQ = cd;
@@ -898,17 +1052,23 @@ function openQuiz(s: GameState, o: PlayerState, by: string): void {
   s.events.push({ type: 'quiz', id: o.id, by, result: 'open' });
 }
 
-function closeQuiz(s: GameState, o: PlayerState, result: 'ok' | 'timeout'): void {
+/**
+ * Cierra el quiz. Bien: vuelve a jugar al instante. Mal o sin responder a
+ * tiempo: un aturdimiento propio (una sola vez, porque el quiz se cierra).
+ */
+function closeQuiz(s: GameState, o: PlayerState, result: 'ok' | 'wrong' | 'timeout'): void {
   const by = o.quiz?.by ?? '';
   o.quiz = null;
   o.quizImmune = BALDI_QUIZ.immuneTicks;
   o.kickArmed = false;
   s.events.push({ type: 'quiz', id: o.id, by, result });
+  if (result !== 'ok') penaltyStun(s, o, cfg(s).baldi.quiz.wrongStun);
 }
 
 /**
  * Respuesta al quiz (número 1–3 de la entrada, al apretarlo). La correcta lo
- * cierra; una incorrecta no lo alarga. Lo valida la autoridad.
+ * cierra; una incorrecta también, con penalización. Lo valida la autoridad:
+ * el cliente sólo manda el número que tocó.
  */
 export function quizInput(s: GameState, p: PlayerState): void {
   const q = p.quiz;
@@ -918,7 +1078,7 @@ export function quizInput(s: GameState, p: PlayerState): void {
   if (n - 1 === q.answer) closeQuiz(s, p, 'ok');
   else {
     q.wrong++;
-    s.events.push({ type: 'quiz', id: p.id, by: q.by, result: 'wrong' });
+    closeQuiz(s, p, 'wrong');
   }
 }
 
@@ -929,18 +1089,20 @@ function addZone(s: GameState, p: PlayerState, kind: Zone['kind'], x: number, y:
 }
 
 /** Protección de la pelota: no se suma (vale la mayor duración restante) y quita efectos de poder activos sobre ella. */
-function protectBall(s: GameState, p: PlayerState, ticks: number): void {
+function protectBall(s: GameState, by: string, ticks: number): void {
   if (ticks >= s.ballShield) {
     s.ballShield = ticks;
     s.ballShieldMax = ticks;
-    s.ballShieldBy = p.id;
+    s.ballShieldBy = by;
   }
-  // sin cambiar posición ni velocidad: sólo se cortan atracción y electricidad
+  // sin cambiar posición ni velocidad: sólo se cortan atracción, electricidad y energía
   s.tethers = s.tethers.filter((t) => !(t.kind === 'web' && t.target === null));
   s.ballElec = 0;
   s.ballElecHit = [];
   s.ballDonut = 0;
-  s.events.push({ type: 'protect', id: p.id });
+  s.ballKi = 0;
+  s.ballKiBy = null;
+  s.events.push({ type: 'protect', id: by });
 }
 
 /**
@@ -955,7 +1117,7 @@ function freeSpot(s: GameState, x: number, y: number, r: number, kind: 'player' 
   const ok = (cx: number, cy: number): boolean => {
     if (Math.abs(cx) > W || Math.abs(cy) > H) return false;
     for (const o of s.players) {
-      if (o !== self && Math.hypot(o.d.x - cx, o.d.y - cy) < o.d.r + r + 0.5) return false;
+      if (o !== self && inPlay(o) && Math.hypot(o.d.x - cx, o.d.y - cy) < o.d.r + r + 0.5) return false;
     }
     if (kind === 'player' && Math.hypot(s.ball.x - cx, s.ball.y - cy) < s.ball.r + r + 0.5) return false;
     for (const q of stadium.posts) if (Math.hypot(q.x - cx, q.y - cy) < q.r + r + 0.5) return false;
@@ -1015,7 +1177,7 @@ function startRush(p: PlayerState, c: { distance: number; speed: number }): void
 
 /** Discos (jugadores, pelota y postes) que un jugador no puede atravesar. */
 function obstacles(s: GameState, p: PlayerState): { x: number; y: number; r: number }[] {
-  return [...s.players.filter((o) => o !== p).map((o) => o.d), s.ball, ...stadium.posts];
+  return [...s.players.filter((o) => o !== p && inPlay(o)).map((o) => o.d), s.ball, ...stadium.posts];
 }
 
 /**
@@ -1080,7 +1242,7 @@ function slam(s: GameState, p: PlayerState): void {
   const c = cfg(s).hulk.slam;
   if (!ballGuarded(s) && radialPush(p.d.x, p.d.y, s.ball, c.range, c.ballImpulse * ballImpulseFactor(s), LIMITS.ballMaxSpeed - 1, p.d.r)) s.lastTouch = p.id;
   for (const o of s.players) {
-    if (o.team === p.team) continue;
+    if (o.team === p.team || !inPlay(o)) continue;
     if (radialPush(p.d.x, p.d.y, o.d, c.range, c.playerImpulse * pushFactor(s, o), LIMITS.playerMaxSpeed, p.d.r)) applySlow(o, c.stunPct, c.stunTicks);
   }
   s.events.push({ type: 'slam', x: p.d.x, y: p.d.y, r: c.range + p.d.r });
@@ -1092,7 +1254,7 @@ function slam(s: GameState, p: PlayerState): void {
  * un impulso por objetivo y sin atravesar paredes ni postes. Empuja a ambos
  * equipos, incluido quien la provocó.
  */
-function blast(s: GameState, x: number, y: number, radius: number, ballImp: number, playerImp: number, owner: string, fx: number, fy: number, kind: 'arrow' | 'tnt' = 'arrow'): void {
+function blast(s: GameState, x: number, y: number, radius: number, ballImp: number, playerImp: number, owner: string, fx: number, fy: number, kind: 'arrow' | 'tnt' = 'arrow', stun?: { team: PlayerState['team']; ticks: number }): void {
   const dir = (dx: number, dy: number): [number, number] => {
     const d = Math.hypot(dx, dy);
     return d > 1e-6 ? [dx / d, dy / d] : [fx, fy];
@@ -1104,10 +1266,13 @@ function blast(s: GameState, x: number, y: number, radius: number, ballImp: numb
     pushBall(s, ux, uy, ballImp * (1 - Math.max(0, gb) / radius), owner);
   }
   for (const o of s.players) {
+    if (!inPlay(o)) continue;
     const g = Math.hypot(o.d.x - x, o.d.y - y) - o.d.r;
     if (g > radius || lineBlocked(x, y, o.d.x, o.d.y)) continue;
     const [ux, uy] = dir(o.d.x - x, o.d.y - y);
     pushPlayer(s, o, ux, uy, playerImp * (1 - Math.max(0, g) / radius));
+    // TNT: además aturde a los rivales (un impacto por explosión; no se suma, se refresca)
+    if (stun && o.team !== stun.team) applyStun(s, o, stun.ticks);
   }
   if (gb <= radius && ballGuarded(s)) s.events.push({ type: 'blocked', x: b.x, y: b.y });
   s.events.push({ type: 'boom', x, y, r: radius, kind });
@@ -1161,7 +1326,7 @@ function fireLaser(s: GameState, z: Zone, owner: PlayerState): void {
   const tb = along(s.ball.x, s.ball.y, s.ball.r);
   if (tb !== null && !lineBlocked(ox, oy, s.ball.x, s.ball.y)) hits.push({ t: tb, id: '', o: null });
   for (const o of s.players) {
-    if (o.team === owner.team) continue;
+    if (o.team === owner.team || !inPlay(o)) continue;
     const t = along(o.d.x, o.d.y, o.d.r);
     if (t !== null) hits.push({ t, id: o.id, o });
   }
@@ -1203,7 +1368,7 @@ function updateZones(s: GameState): void {
         const reach = z.r - cr;
         if (!ballGuarded(s) && radialPush(z.x, z.y, b, reach, c.ballImpulse * ballImpulseFactor(s), LIMITS.ballMaxSpeed - 1, cr)) s.lastTouch = z.owner;
         for (const o of s.players) {
-          if (o.team === z.team) continue;
+          if (o.team === z.team || !inPlay(o)) continue;
           radialPush(z.x, z.y, o.d, reach, c.playerImpulse * pushFactor(s, o), LIMITS.playerMaxSpeed, cr);
         }
         s.events.push({ type: 'slam', x: z.x, y: z.y, r: z.r });
@@ -1236,7 +1401,7 @@ function updateZones(s: GameState): void {
       case 'bolt':
         if (z.delay > 0 && --z.delay === 0) {
           for (const o of s.players) {
-            if (o.team !== z.team && Math.hypot(o.d.x - z.x, o.d.y - z.y) < z.r + o.d.r) applyStun(s, o, P.thor.bolt.stunTicks);
+            if (o.team !== z.team && inPlay(o) && Math.hypot(o.d.x - z.x, o.d.y - z.y) < z.r + o.d.r) applyStun(s, o, P.thor.bolt.stunTicks);
           }
         }
         return --z.ticks > 0;
@@ -1245,7 +1410,7 @@ function updateZones(s: GameState): void {
         if (owner.trailBoost > 0 && s.tick % c.dropEvery === 0) z.pts.push({ x: owner.d.x, y: owner.d.y, t: s.tick });
         z.pts = z.pts.filter((q) => s.tick - q.t < c.segTicks);
         for (const o of s.players) {
-          if (o.team === z.team) continue;
+          if (o.team === z.team || !inPlay(o)) continue;
           if (z.pts.some((q) => Math.hypot(o.d.x - q.x, o.d.y - q.y) < z.r + o.d.r)) {
             // frena aceleración y velocidad máxima; persiste `lingerTicks` al salir
             applySlow(o, c.slowPct, c.lingerTicks);
@@ -1288,8 +1453,42 @@ function updateZones(s: GameState): void {
       case 'tnt':
         if (z.delay > 0 && --z.delay === 0) {
           const c = P.verity.tnt;
-          blast(s, z.x, z.y, z.r, c.ballImpulse, c.playerImpulse, z.owner, z.dx, z.dy, 'tnt');
+          blast(s, z.x, z.y, z.r, c.ballImpulse, c.playerImpulse, z.owner, z.dx, z.dy, 'tnt', { team: z.team, ticks: c.stunTicks });
         }
+        return --z.ticks > 0;
+      case 'ink': {
+        if (z.delay > 0) {
+          z.delay--;
+          return --z.ticks > 0;
+        }
+        // pisar el charco: el borde del rival entra en el círculo; una vez por charco y rival
+        const c = P.bendy.puddle;
+        for (const o of s.players) {
+          if (o.team === z.team || !inPlay(o) || z.hits!.includes(o.id)) continue;
+          if (Math.hypot(o.d.x - z.x, o.d.y - z.y) < z.r + o.d.r * 0.5 && applyInk(s, o, c.inkTicks)) z.hits!.push(o.id);
+        }
+        return --z.ticks > 0;
+      }
+      case 'inkTrail': {
+        const c = P.bendy.form;
+        if (owner.inkForm > 0 && s.tick % c.dropEvery === 0) {
+          z.pts.push({ x: owner.d.x, y: owner.d.y, t: s.tick });
+          // límite de segmentos: el más viejo se descarta
+          if (z.pts.length > c.maxSegs) z.pts.splice(0, z.pts.length - c.maxSegs);
+        }
+        z.pts = z.pts.filter((q) => s.tick - q.t < c.segTicks);
+        for (const o of s.players) {
+          if (o.team === z.team || !inPlay(o)) continue;
+          if (z.pts.some((q) => Math.hypot(o.d.x - q.x, o.d.y - q.y) < z.r + o.d.r)) applyInk(s, o, c.inkTicks);
+        }
+        return --z.ticks > 0 || z.pts.length > 0;
+      }
+      case 'water': {
+        if (owner.spray <= 0 || !inPlay(owner)) return false;
+        sprayWater(s, z, owner);
+        return --z.ticks > 0;
+      }
+      case 'kame':
         return --z.ticks > 0;
       case 'quiz': {
         const t = z.target ? findPlayer(s, z.target) : undefined;
@@ -1313,7 +1512,7 @@ function updateZones(s: GameState): void {
           const c = P.ibai.glove;
           const t = z.target ? findPlayer(s, z.target) : undefined;
           // sólo pega si el rival sigue al alcance y a la vista (no golpea a distancia)
-          if (t) {
+          if (t && inPlay(t) && !z.hits!.includes(t.id)) {
             const dx = t.d.x - owner.d.x;
             const dy = t.d.y - owner.d.y;
             const dist = Math.hypot(dx, dy);
@@ -1321,6 +1520,8 @@ function updateZones(s: GameState): void {
               z.dx = dx / dist;
               z.dy = dy / dist;
               pushPlayer(s, t, z.dx, z.dy, c.playerImpulse);
+              applyStun(s, t, c.stunTicks);
+              z.hits!.push(t.id);
               s.events.push({ type: 'hit', x: t.d.x, y: t.d.y, target: 'player' });
             }
           }
@@ -1401,6 +1602,13 @@ export function updatePowers(s: GameState): void {
     if (p.powerKick > 0) p.powerKick--;
     if (p.gemGap > 0) p.gemGap--;
     for (let g = 0; g < p.gemCd.length; g++) if (p.gemCd[g] > 0) p.gemCd[g]--;
+    if (p.inkForm > 0) p.inkForm--;
+    if (p.spray > 0) p.spray--;
+    if (p.kiGap > 0) p.kiGap--;
+    if (p.blinkKick > 0) p.blinkKick--;
+    if (p.freeBlink > 0) p.freeBlink--;
+    updateInk(p);
+    updateSwallow(s, p);
     updateSlip(s, p);
     updateGiant(s, p);
   }
@@ -1429,14 +1637,29 @@ function updateIncap(s: GameState, p: PlayerState): void {
     if (p.stun > 0) p.stun--;
     if (p.trap > 0) p.trap--;
     if (p.mind > 0) p.mind--;
-    if (p.incapRun >= STUN.maxTicks) p.stun = p.trap = p.mind = 0;
+    if (p.incapRun >= Math.max(STUN.maxTicks, p.incapCap)) p.stun = p.trap = p.mind = 0;
   }
   if (p.stun === 0 && p.trap === 0 && p.mind === 0) {
     p.mindBy = null;
     if (p.incapRun > 0) {
       p.incapRun = 0;
+      p.incapCap = STUN.maxTicks;
       p.stunImmune = STUN.immuneTicks;
     } else if (p.stunImmune > 0) p.stunImmune--;
+  }
+}
+
+/** Tinta en pantalla: corre la secuencia (tope INK.maxRun) y al terminar da inmunidad. */
+function updateInk(p: PlayerState): void {
+  if (p.ink > 0) {
+    p.ink--;
+    if (++p.inkRun >= INK.maxRun) p.ink = 0;
+  }
+  if (p.ink === 0) {
+    if (p.inkRun > 0) {
+      p.inkRun = 0;
+      p.inkImmune = INK.immuneTicks;
+    } else if (p.inkImmune > 0) p.inkImmune--;
   }
 }
 
@@ -1453,6 +1676,7 @@ function updateSlip(s: GameState, p: PlayerState): void {
  * solapado ni genera empujes explosivos; al terminar vuelve al tamaño normal.
  */
 function updateGiant(s: GameState, p: PlayerState): void {
+  if (p.giant === 0 && p.d.r === PLAYER.radius) return;
   const c = cfg(s).ibai.giant;
   const base = PLAYER.radius;
   const target = p.giant > 0 ? base * c.radiusMult : base;
@@ -1460,7 +1684,7 @@ function updateGiant(s: GameState, p: PlayerState): void {
   if (p.d.r > target) p.d.r = Math.max(target, p.d.r - rate);
   else if (p.d.r < target) {
     let room = Math.min(STADIUM.width - Math.abs(p.d.x), STADIUM.height - Math.abs(p.d.y)) - p.d.r;
-    for (const o of s.players) if (o !== p) room = Math.min(room, Math.hypot(o.d.x - p.d.x, o.d.y - p.d.y) - o.d.r - p.d.r);
+    for (const o of s.players) if (o !== p && inPlay(o)) room = Math.min(room, Math.hypot(o.d.x - p.d.x, o.d.y - p.d.y) - o.d.r - p.d.r);
     room = Math.min(room, Math.hypot(s.ball.x - p.d.x, s.ball.y - p.d.y) - s.ball.r - p.d.r);
     for (const q of stadium.posts) room = Math.min(room, Math.hypot(q.x - p.d.x, q.y - p.d.y) - q.r - p.d.r);
     p.d.r = Math.min(target, p.d.r + Math.min(rate, Math.max(0, room - 0.5)));
@@ -1495,12 +1719,33 @@ function recordPlayers(s: GameState): void {
   }
 }
 
-/** Electricidad por contacto físico e historial para rebobinar. */
+/** Electricidad y energía del Kamehameha por contacto físico, e historial para rebobinar. */
 function updateBall(s: GameState): void {
   const b = s.ball;
+  if (s.ballKi > 0) {
+    if (ballGuarded(s)) {
+      s.ballKi = 0;
+      s.ballKiBy = null;
+    } else {
+      const by = s.ballKiBy ? findPlayer(s, s.ballKiBy) : undefined;
+      const c = cfg(s).goku.kame;
+      // el primer rival que la toca: empujón hacia afuera y aturdimiento; después se consume
+      const o = by && s.players.find((q) => q.team !== by.team && inPlay(q) && Math.hypot(q.d.x - b.x, q.d.y - b.y) - q.d.r - b.r <= 1);
+      if (!by || o) {
+        if (o && by) {
+          const d = Math.hypot(o.d.x - b.x, o.d.y - b.y) || 1;
+          pushPlayer(s, o, (o.d.x - b.x) / d, (o.d.y - b.y) / d, c.energyImpulse);
+          applyStun(s, o, c.energyStun);
+          s.events.push({ type: 'hit', x: o.d.x, y: o.d.y, target: 'player' });
+        }
+        s.ballKi = 0;
+        s.ballKiBy = null;
+      } else if (--s.ballKi === 0) s.ballKiBy = null;
+    }
+  }
   if (s.ballElec > 0) {
     for (const p of s.players) {
-      if (s.ballElecHit.includes(p.id)) continue;
+      if (s.ballElecHit.includes(p.id) || !inPlay(p)) continue;
       // contacto físico real (los rayos dibujados no cuentan)
       if (Math.hypot(p.d.x - b.x, p.d.y - b.y) - p.d.r - b.r <= 1 && applyStun(s, p, s.ballElecStun)) s.ballElecHit.push(p.id);
     }
@@ -1658,10 +1903,12 @@ function stepProjectile(s: GameState, pr: Projectile): boolean {
         s.tethers.push({ owner: pr.owner, kind: 'grapple', target: null, ticks: P.batman.grapple.pullTicks });
         s.events.push({ type: 'tether', id: pr.owner });
       } else if (pr.kind === 'donut') {
-        // rosquilla: frena una vez y reduce los impulsos extra durante un rato
+        // rosquilla: frena una vez, reduce los impulsos extra y protege la pelota de todo poder
+        // (como ya no estaba protegida, la protección nunca se prolonga con otra rosquilla)
         const c = P.homer.donut;
         b.vx *= 1 - c.ballSlow;
         b.vy *= 1 - c.ballSlow;
+        protectBall(s, pr.owner, Math.min(c.protectTicks, c.ballTicks));
         s.ballDonut = c.ballTicks;
         s.lastTouch = pr.owner;
       } else if (pr.kind === 'ruler') {
@@ -1691,7 +1938,7 @@ function stepProjectile(s: GameState, pr: Projectile): boolean {
     // el gancho y la regla sólo buscan la pelota: atraviesan a los jugadores
     if (pr.kind === 'hook' || pr.kind === 'ruler') continue;
     for (const o of s.players) {
-      if (o.id === pr.owner) continue;
+      if (o.id === pr.owner || !inPlay(o)) continue;
       if (Math.hypot(o.d.x - pr.x, o.d.y - pr.y) >= o.d.r + pr.r) continue;
       const rival = o.team !== pr.team;
       const ux = pr.vx / sp;
@@ -1832,10 +2079,14 @@ export function applyDash(s: GameState, p: PlayerState): void {
 
 /**
  * Limpia proyectiles, zonas, hilos y estados (gol, saque, reinicio, fin):
- * stuns, electricidad, protección, portales e historial de la jugada. Las
- * recargas se tratan aparte (el saque las pone en 0).
+ * stuns, electricidad, protección, portales, tragados, tinta, ki e historial
+ * de la jugada. Las recargas siguen corriendo.
  */
 export function clearEffects(s: GameState): void {
+  // primero se libera a los tragados en un lugar válido
+  for (const p of s.players) if (p.eatenBy) releaseVictim(s, p, findPlayer(s, p.eatenBy) ?? null, false);
+  s.ballKi = 0;
+  s.ballKiBy = null;
   s.projectiles = [];
   s.tethers = [];
   s.zones = [];
@@ -1879,5 +2130,362 @@ export function clearEffects(s: GameState): void {
     p.shotGap = 0;
     p.powerKick = 0;
     p.gemGap = 0;
+    p.incapCap = STUN.maxTicks;
+    p.kickHits = {};
+    p.ink = 0;
+    p.inkRun = 0;
+    p.inkImmune = 0;
+    p.inkForm = 0;
+    p.spray = 0;
+    p.holding = null;
+    p.holdTicks = 0;
+    p.eatenBy = null;
+    p.charge = 0;
+    p.chargeKi = false;
+    // el ki se reinicia con cada gol
+    p.ki = 0;
+    p.kiGap = 0;
+    p.blinkKick = 0;
+    p.freeBlink = 0;
   }
 }
+
+// ---------------------------------------------------------------- tercera tanda
+
+/** Mancha de tinta: adonde va el rival más cercano al alcance (anticipado a la caída); si no hay, hacia donde mira. */
+export function puddleSpot(s: GameState, p: PlayerState): [number, number] {
+  const c = cfg(s).bendy.puddle;
+  let best: PlayerState | null = null;
+  let bestGap = Infinity;
+  for (const o of s.players) {
+    if (o.team === p.team || !inPlay(o)) continue;
+    const gap = Math.hypot(o.d.x - p.d.x, o.d.y - p.d.y) - p.d.r - o.d.r;
+    if (gap > c.range || lineBlocked(p.d.x, p.d.y, o.d.x, o.d.y)) continue;
+    if (gap < bestGap - 1e-6 || (Math.abs(gap - bestGap) <= 1e-6 && best && o.id < best.id)) {
+      best = o;
+      bestGap = gap;
+    }
+  }
+  let tx = best ? best.d.x + best.d.vx * c.flightTicks : p.d.x + p.ax * (c.range * 0.6 + p.d.r);
+  let ty = best ? best.d.y + best.d.vy * c.flightTicks : p.d.y + p.ay * (c.range * 0.6 + p.d.r);
+  const dist = Math.hypot(tx - p.d.x, ty - p.d.y);
+  if (dist > c.range + p.d.r) {
+    tx = p.d.x + ((tx - p.d.x) / dist) * (c.range + p.d.r);
+    ty = p.d.y + ((ty - p.d.y) / dist) * (c.range + p.d.r);
+  }
+  return clampToStadium(tx, ty, 6);
+}
+
+/**
+ * Chorro de Jeff: franja recta desde su borde en la dirección fijada, cortada
+ * por paredes y postes. Cada tick acelera la pelota y a los rivales dentro de
+ * la franja (sin pasar `ballMax`/`playerMax` en esa dirección). La pelota
+ * protegida no se mueve.
+ */
+function sprayWater(s: GameState, z: Zone, owner: PlayerState): void {
+  const c = cfg(s).jeff.water;
+  const ox = owner.d.x + z.dx * owner.d.r;
+  const oy = owner.d.y + z.dy * owner.d.r;
+  z.x = ox;
+  z.y = oy;
+  z.len = rayFree(ox, oy, z.dx, z.dy, c.range);
+  const inside = (x: number, y: number, r: number): boolean => {
+    const rx = x - ox;
+    const ry = y - oy;
+    const t = rx * z.dx + ry * z.dy;
+    return t >= -r && t <= z.len + r && Math.abs(rx * z.dy - ry * z.dx) <= z.r + r;
+  };
+  const b = s.ball;
+  if (inside(b.x, b.y, b.r) && !lineBlocked(ox, oy, b.x, b.y)) {
+    if (ballGuarded(s)) {
+      if (z.ticks % 15 === 0) s.events.push({ type: 'blocked', x: b.x, y: b.y });
+    } else {
+      pullAlong(b, z.dx, z.dy, c.ballAccel * ballImpulseFactor(s), c.ballMax);
+      s.lastTouch = owner.id;
+    }
+  }
+  for (const o of s.players) {
+    if (o.team === owner.team || !inPlay(o) || !inside(o.d.x, o.d.y, o.d.r)) continue;
+    pullAlong(o.d, z.dx, z.dy, c.playerAccel * o.d.invMass * 2 * pushFactor(s, o), c.playerMax);
+  }
+}
+
+/** Acelera `d` en la dirección (ux, uy) sin pasar `max` en esa componente. */
+function pullAlong(d: { vx: number; vy: number }, ux: number, uy: number, accel: number, max: number): void {
+  const along = d.vx * ux + d.vy * uy;
+  if (along >= max) return;
+  const add = Math.min(accel, max - along);
+  d.vx += ux * add;
+  d.vy += uy * add;
+}
+
+/** Rival que Jeff puede tragar: uno solo, pegado delante, a la vista, sin estar tragado ni llevando a alguien. */
+export function swallowTarget(s: GameState, p: PlayerState): PlayerState | null {
+  const c = cfg(s).jeff.swallow;
+  const cos = Math.cos((c.cone * Math.PI) / 180);
+  let best: PlayerState | null = null;
+  let bestGap = Infinity;
+  for (const o of s.players) {
+    if (o.team === p.team || !inPlay(o) || o.holding) continue;
+    const dx = o.d.x - p.d.x;
+    const dy = o.d.y - p.d.y;
+    const dist = Math.hypot(dx, dy);
+    const gap = dist - p.d.r - o.d.r;
+    if (dist === 0 || gap > c.range) continue;
+    if ((dx * p.ax + dy * p.ay) / dist < cos - 1e-9) continue;
+    if (lineBlocked(p.d.x, p.d.y, o.d.x, o.d.y)) continue;
+    if (gap < bestGap - 1e-6 || (Math.abs(gap - bestGap) <= 1e-6 && best && o.id < best.id)) {
+      best = o;
+      bestGap = gap;
+    }
+  }
+  return best;
+}
+
+/** Traga al rival: sale de la física, pierde lo que estaba haciendo y acompaña a Jeff. */
+function swallow(s: GameState, p: PlayerState, v: PlayerState): void {
+  const c = cfg(s).jeff.swallow;
+  p.holding = v.id;
+  p.holdTicks = c.holdTicks;
+  v.eatenBy = p.id;
+  v.kickArmed = false;
+  v.rush = 0;
+  v.dash = 0;
+  v.charge = 0;
+  v.spray = 0;
+  v.inkForm = 0;
+  v.mind = 0;
+  v.mindBy = null;
+  v.d.x = p.d.x;
+  v.d.y = p.d.y;
+  v.d.vx = 0;
+  v.d.vy = 0;
+  v.warp++;
+  // lo que dependía de su posición se corta (hilos, canalizaciones, chorro)
+  s.tethers = s.tethers.filter((t) => t.owner !== v.id && t.target !== v.id);
+  s.zones = s.zones.filter((z) => !(z.owner === v.id && (z.kind === 'portal' || z.kind === 'space' || z.kind === 'water')));
+  for (const o of s.players) if (o.mindBy === v.id) o.mind = 0;
+  s.events.push({ type: 'swallow', id: v.id, by: p.id, result: 'in' });
+}
+
+/**
+ * Libera a un tragado en el lugar legal más cercano delante de Jeff (o donde
+ * esté). `spit`: escupido con empuje y aturdimiento; si no, sólo se libera
+ * (gol, reinicio, salida, cambio de equipo).
+ */
+export function releaseVictim(s: GameState, v: PlayerState, jeff: PlayerState | null, spit: boolean): void {
+  const c = cfg(s).jeff.swallow;
+  v.eatenBy = null;
+  const ax = jeff ? jeff.ax : 0;
+  const ay = jeff ? jeff.ay : 0;
+  if (jeff) {
+    if (jeff.holding === v.id) jeff.holding = null;
+    jeff.holdTicks = 0;
+    const gap = jeff.d.r + v.d.r + 2;
+    const spot = freeSpot(s, jeff.d.x + ax * gap, jeff.d.y + ay * gap, v.d.r, 'player', v) ?? freeSpot(s, jeff.d.x, jeff.d.y, v.d.r, 'player', v);
+    if (spot) {
+      v.d.x = spot[0];
+      v.d.y = spot[1];
+    }
+  }
+  const [cx, cy] = clampToStadium(v.d.x, v.d.y, v.d.r);
+  v.d.x = cx;
+  v.d.y = cy;
+  v.d.vx = 0;
+  v.d.vy = 0;
+  v.warp++;
+  if (spit && jeff) {
+    pushPlayer(s, v, ax, ay, c.spitImpulse);
+    applyStun(s, v, c.stunTicks);
+  }
+  s.events.push({ type: 'swallow', id: v.id, by: jeff?.id ?? '', result: 'out' });
+}
+
+/** Tragado: acompaña a Jeff; se escupe solo al agotarse el tiempo; si Jeff ya no está, se libera. */
+function updateSwallow(s: GameState, p: PlayerState): void {
+  if (p.holding) {
+    const v = findPlayer(s, p.holding);
+    if (!v || v.eatenBy !== p.id) {
+      p.holding = null;
+      p.holdTicks = 0;
+    } else if (--p.holdTicks <= 0) releaseVictim(s, v, p, true);
+  }
+  if (p.eatenBy) {
+    const j = findPlayer(s, p.eatenBy);
+    if (!j || j.holding !== p.id) releaseVictim(s, p, j ?? null, false);
+  }
+}
+
+/** Dirección del Kamehameha: primero la pelota (a la vista y al alcance), después un rival; si no, hacia donde mira. */
+export function kameAim(s: GameState, p: PlayerState): { dx: number; dy: number; target: AimTarget | null } {
+  const c = cfg(s).goku.kame;
+  const t = pickTarget(s, p, { range: c.range, ball: true, rivals: false }) ?? pickTarget(s, p, { range: c.range, ball: false, rivals: true });
+  if (t) {
+    const d = Math.hypot(t.x - p.d.x, t.y - p.d.y);
+    if (d > 0) return { dx: (t.x - p.d.x) / d, dy: (t.y - p.d.y) / d, target: t };
+  }
+  return { dx: p.ax, dy: p.ay, target: null };
+}
+
+/** Carga máxima efectiva (el ki la reduce a la mitad). */
+export function kameMaxCharge(s: GameState, p: PlayerState): number {
+  const c = cfg(s).goku;
+  return Math.max(1, Math.round(c.kame.maxCharge * (p.chargeKi ? c.ki.chargeMult : 1)));
+}
+
+/**
+ * Carga del Kamehameha (cada tick, antes de activar poderes): mantener Q
+ * carga; soltar dispara. Un aturdimiento, quiz o tragado la cancela sin gastar
+ * la recarga.
+ */
+export function chargeInput(s: GameState, p: PlayerState, held: boolean): void {
+  if (p.charge <= 0) return;
+  if (incapacitated(p)) {
+    p.charge = 0;
+    p.chargeKi = false;
+    return;
+  }
+  if (held) {
+    p.charge = Math.min(p.charge + 1, kameMaxCharge(s, p));
+    return;
+  }
+  fireKame(s, p);
+}
+
+/**
+ * Rayo: franja recta desde el borde de Goku hasta la primera pared o poste.
+ * Empuja la pelota (si no está protegida) y a cada rival que atraviesa, una
+ * vez, con fuerza según la carga. A carga máxima la pelota queda con energía.
+ */
+function fireKame(s: GameState, p: PlayerState): void {
+  const P = cfg(s).goku;
+  const c = P.kame;
+  const frac = Math.max(c.minFrac, Math.min(1, p.charge / kameMaxCharge(s, p)));
+  const full = p.charge >= kameMaxCharge(s, p);
+  const boost = p.chargeKi ? P.ki.pushMult : 1;
+  p.charge = 0;
+  p.chargeKi = false;
+  const aim = kameAim(s, p);
+  const ox = p.d.x + aim.dx * p.d.r;
+  const oy = p.d.y + aim.dy * p.d.r;
+  const len = rayFree(ox, oy, aim.dx, aim.dy, c.range);
+  const z = addZone(s, p, 'kame', ox, oy, c.halfWidth, 0, c.beamTicks);
+  z.dx = aim.dx;
+  z.dy = aim.dy;
+  z.len = len;
+  z.ang = frac;
+  const inside = (x: number, y: number, r: number): boolean => {
+    const rx = x - ox;
+    const ry = y - oy;
+    const t = rx * aim.dx + ry * aim.dy;
+    return t >= -r && t <= len + r && Math.abs(rx * aim.dy - ry * aim.dx) <= z.r + r;
+  };
+  const b = s.ball;
+  if (inside(b.x, b.y, b.r) && !lineBlocked(ox, oy, b.x, b.y)) {
+    if (pushBall(s, aim.dx, aim.dy, c.ballImpulse * frac * boost, p.id)) {
+      s.events.push({ type: 'hit', x: b.x, y: b.y, target: 'ball' });
+      if (full) {
+        s.ballKi = c.energyTicks;
+        s.ballKiBy = p.id;
+      }
+    } else s.events.push({ type: 'blocked', x: b.x, y: b.y });
+  }
+  for (const o of s.players) {
+    if (o.team === p.team || !inPlay(o) || !inside(o.d.x, o.d.y, o.d.r)) continue;
+    pushPlayer(s, o, aim.dx, aim.dy, c.playerImpulse * frac * boost);
+    s.events.push({ type: 'hit', x: o.d.x, y: o.d.y, target: 'player' });
+  }
+  p.cdQ = s.noCd ? 0 : c.cooldown;
+  s.events.push({ type: 'power', id: p.id, slot: 'q', hero: p.hero });
+}
+
+/** Lugar de la Transmisión instantánea: pegado a la pelota, del lado opuesto al arco rival. null si está lejos o no hay lugar. */
+export function blinkSpot(s: GameState, p: PlayerState): [number, number] | null {
+  const c = cfg(s).goku.blink;
+  const b = s.ball;
+  if (Math.hypot(b.x - p.d.x, b.y - p.d.y) - p.d.r - b.r > c.range) return null;
+  const gx = (p.team === 'red' ? 1 : -1) * STADIUM.fieldW;
+  let ux = gx - b.x;
+  let uy = -b.y;
+  const d = Math.hypot(ux, uy) || 1;
+  ux /= d;
+  uy /= d;
+  const gap = b.r + p.d.r + 2;
+  return freeSpot(s, b.x - ux * gap, b.y - uy * gap, p.d.r, 'player', p);
+}
+
+/**
+ * Transmisión instantánea. Normal: patada potenciada y onda que aparta a los
+ * rivales (nunca la pelota); con el ki lleno deja una segunda gratis. Gratis:
+ * sólo el teletransporte. Sin lugar válido no gasta nada.
+ */
+function gokuBlink(s: GameState, p: PlayerState, free: boolean): boolean {
+  const P = cfg(s).goku;
+  const c = P.blink;
+  const spot = blinkSpot(s, p);
+  if (!spot) {
+    s.events.push({ type: 'fizzle', id: p.id, slot: 'e' });
+    return false;
+  }
+  const x0 = p.d.x;
+  const y0 = p.d.y;
+  p.d.x = spot[0];
+  p.d.y = spot[1];
+  p.d.vx = 0;
+  p.d.vy = 0;
+  p.rush = 0;
+  p.dash = 0;
+  p.warp++;
+  s.events.push({ type: 'blink', id: p.id, x0, y0, x1: p.d.x, y1: p.d.y });
+  if (free) p.freeBlink = 0;
+  else {
+    p.blinkKick = c.kickTicks;
+    for (const o of s.players) {
+      if (o.team === p.team || !inPlay(o)) continue;
+      radialPush(p.d.x, p.d.y, o.d, c.waveRadius, c.waveImpulse * o.d.invMass * pushFactor(s, o), LIMITS.playerMaxSpeed, p.d.r);
+    }
+    s.events.push({ type: 'slam', x: p.d.x, y: p.d.y, r: c.waveRadius + p.d.r });
+    if (kiReady(s, p)) {
+      p.ki = 0;
+      p.freeBlink = P.ki.freeTicks;
+    }
+    p.cdE = s.noCd ? 0 : c.cooldown;
+  }
+  s.events.push({ type: 'power', id: p.id, slot: 'e', hero: p.hero });
+  return true;
+}
+
+/**
+ * Patada de Ibai gigante a los rivales: alcance de patada escalado por su
+ * tamaño, empuje hacia afuera, un impacto por rival y patada, y un intervalo
+ * mínimo por rival. Devuelve cuántos golpeó.
+ */
+export function giantKick(s: GameState, p: PlayerState): number {
+  const c = cfg(s).ibai.giant;
+  const reach = KICK.range * (p.d.r / PLAYER.radius);
+  let hits = 0;
+  for (const o of s.players) {
+    if (o.team === p.team || !inPlay(o)) continue;
+    const dx = o.d.x - p.d.x;
+    const dy = o.d.y - p.d.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist === 0 || dist - p.d.r - o.d.r > reach) continue;
+    const last = p.kickHits[o.id];
+    if (last !== undefined && s.tick - last < c.kickGap) continue;
+    p.kickHits[o.id] = s.tick;
+    pushPlayer(s, o, dx / dist, dy / dist, c.kickImpulse);
+    s.events.push({ type: 'hit', x: o.d.x, y: o.d.y, target: 'player' });
+    hits++;
+  }
+  return hits;
+}
+
+/** Instinto de combate: una carga de ki por patada a la pelota (máximo una cada `gap`). */
+export function gainKi(s: GameState, p: PlayerState): void {
+  const c = cfg(s).goku.ki;
+  if (p.hero !== 'goku' || p.kiGap > 0 || p.ki >= c.max) return;
+  p.ki++;
+  p.kiGap = c.gap;
+  s.events.push({ type: 'ki', id: p.id, ki: p.ki });
+}
+

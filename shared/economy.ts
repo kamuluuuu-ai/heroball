@@ -14,8 +14,10 @@ export const ECONOMY = {
    * 2: se suman Ibai (raro), Homero, CJ y Verity (épicos) y Baldi (legendario).
    * Las probabilidades por rareza y las garantías no cambian; dentro de cada
    * rareza el reparto es uniforme. Las aperturas ya confirmadas conservan su versión.
+   * 3: se suman Bendy (épico), Jeff the Land Shark y Goku (legendarios), con
+   * el mismo criterio: probabilidades por rareza y garantías sin cambios.
    */
-  version: 2,
+  version: 3,
   currency: 'HeroCoins',
   /** Probabilidades base en partes por millón (suman 1 000 000). */
   chests: {

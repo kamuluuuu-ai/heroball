@@ -20,12 +20,12 @@ describe('configuración', () => {
     expect(ECONOMY.welcome).toEqual({ coins: 400, standard: 2, elite: 0 });
   });
 
-  it('los iniciales y el secreto no salen en cofres; composición versión 2', () => {
-    expect(ECONOMY.version).toBe(2);
+  it('los iniciales y el secreto no salen en cofres; composición versión 3', () => {
+    expect(ECONOMY.version).toBe(3);
     expect(heroesOfRarity('common')).toEqual(['hawkeye', 'widow']);
     expect(heroesOfRarity('rare')).toEqual(['cap', 'panther', 'ibai']);
-    expect(heroesOfRarity('epic')).toEqual(['ironman', 'flash', 'homer', 'cj', 'verity']);
-    expect(heroesOfRarity('legendary')).toEqual(['thor', 'strange', 'baldi']);
+    expect(heroesOfRarity('epic')).toEqual(['ironman', 'flash', 'homer', 'cj', 'verity', 'bendy']);
+    expect(heroesOfRarity('legendary')).toEqual(['thor', 'strange', 'baldi', 'jeff', 'goku']);
     for (const r of RARITIES) {
       for (const h of heroesOfRarity(r)) {
         expect(STARTER_IDS).not.toContain(h);

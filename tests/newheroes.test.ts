@@ -246,18 +246,22 @@ describe('Baldi', () => {
     expect(stopped).toBe(true);
   });
 
-  it('quiz: la respuesta incorrecta no lo cierra; la correcta sí y da 12 s de inmunidad', () => {
+  it('quiz: la respuesta incorrecta lo cierra con 1,5 s de aturdimiento; la correcta lo cierra sin castigo y da 12 s de inmunidad', () => {
+    const w = quizGame();
+    const wb = pl(w, 'b');
+    expect(wb.quiz).not.toBeNull();
+    const wr = wb.quiz!.answer + 1;
+    tick(w, { b: num(wr === 1 ? 2 : 1) });
+    expect(wb.quiz).toBeNull();
+    expect(wb.stun).toBeGreaterThan(POWERS.baldi.quiz.wrongStun - 3);
     const s = quizGame();
     const b = pl(s, 'b');
     expect(b.quiz).not.toBeNull();
     expect(b.quiz!.by).toBe('a');
     const right = b.quiz!.answer + 1;
-    const wrong = right === 1 ? 2 : 1;
-    tick(s, { b: num(wrong) });
-    expect(b.quiz!.wrong).toBe(1);
-    tick(s, { b: 0 });
     tick(s, { b: num(right) });
     expect(b.quiz).toBeNull();
+    expect(b.stun).toBe(0);
     expect(b.quizImmune).toBeGreaterThan(BALDI_QUIZ.immuneTicks - 5);
     // inmune: un segundo quiz no se lanza y no gasta la recarga
     s.players[0].cdE = 0;
@@ -265,7 +269,7 @@ describe('Baldi', () => {
     expect(ev.some((e) => e.type === 'power' && e.slot === 'e')).toBe(false);
   });
 
-  it('quiz: se cierra solo a los 2.5 s como máximo y el afectado no se mueve mientras tanto', () => {
+  it('quiz: se cierra solo a los 6 s como máximo (cuenta como error) y el afectado no se mueve mientras tanto', () => {
     const s = quizGame();
     const b = pl(s, 'b');
     const x0 = b.d.x;

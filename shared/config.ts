@@ -281,7 +281,7 @@ export const POWERS = {
     /** Un impacto físico; si golpea la pelota la electrifica: quien la toque queda aturdido (una vez por jugador). */
     hammer: { range: 10 * R, speed: 10, radius: 0.7 * R, ballImpulse: 1.4 * K, playerImpulse: 1 * K, elecTicks: sec(1.5), stunTicks: sec(0.35), cooldown: sec(10) },
     /** Rayo paralizante: rival más cercano en un cono de 2×cone grados; zona fija que cae tras `delay`. */
-    bolt: { range: 10 * R, cone: 30, delay: sec(0.4), radius: 1.3 * R, strikeTicks: sec(0.25), stunTicks: sec(0.55), cooldown: sec(12) },
+    bolt: { range: 10 * R, cone: 30, delay: sec(0.4), radius: 1.95 * R, strikeTicks: sec(0.25), stunTicks: sec(0.55), cooldown: sec(12) },
   },
   strange: {
     /** Rebobinar: la pelota vuelve a su posición y velocidad de hace `ticks` (misma jugada). */
@@ -296,7 +296,7 @@ export const POWERS = {
      * sin desplazamiento siguen); pelota → −ballSlow de su velocidad una vez y,
      * durante `ballTicks`, los impulsos extra (patadas y poderes) se reducen `impulseCut`.
      */
-    donut: { range: 10 * R, speed: 10, radius: 0.6 * R, trapTicks: sec(0.7), ballTicks: sec(2), ballSlow: 0.25, impulseCut: 0.4, cooldown: sec(10) },
+    donut: { range: 10 * R, speed: 10, radius: 0.6 * R, trapTicks: sec(0.7), ballTicks: sec(2), ballSlow: 0.25, impulseCut: 0.4, protectTicks: sec(2), cooldown: sec(10) },
     /**
      * Charco: cae a `ahead` delante tras `throwTicks`; dentro hay menos rozamiento
      * (`damping` en lugar del normal) y menos control (`grip` × aceleración); al
@@ -311,20 +311,32 @@ export const POWERS = {
   },
   baldi: {
     /** Regla: sólo la pelota; al tocarla pone su velocidad en cero una vez (no la congela). */
-    ruler: { range: 12 * R, speed: 12, radius: 0.4 * R, cooldown: sec(9) },
-    /** Quiz: rival en un cono de 2×cone grados, aviso `windup`, duración máxima `ticks`. */
-    quiz: { range: 10 * R, cone: 50, windup: sec(0.4), ticks: sec(2.5), multiply: false, cooldown: sec(35) },
+    ruler: { range: 19.2 * R, speed: 15, radius: 0.4 * R, cooldown: sec(9) },
+    /**
+     * Quiz: rival en un cono de 2×cone grados, aviso `windup`, duración máxima
+     * `ticks`. Una respuesta incorrecta o no responder a tiempo lo cierra y
+     * aturde `wrongStun` (una sola vez por quiz).
+     */
+    quiz: { range: 10 * R, cone: 50, windup: sec(0.4), ticks: sec(6), wrongStun: sec(1.5), multiply: false, cooldown: sec(35) },
   },
   ibai: {
     /** Guante: alcance desde el borde, cono 2×cone grados, un solo rival, aviso corto. */
-    glove: { range: 1.5 * R, cone: 40, windup: sec(0.1), playerImpulse: 2 * K, cooldown: sec(8) },
-    /** Cuerpo gigante: cambia el radio físico (crece y se achica en `growTicks`, sólo en espacio libre). */
-    giant: { ticks: sec(3), radiusMult: 1.35, massMult: 1.8, accelMult: 0.75, growTicks: sec(0.3), cooldown: sec(13) },
+    glove: { range: 1.5 * R, cone: 40, windup: sec(0.1), playerImpulse: 2 * K, stunTicks: sec(1), cooldown: sec(8) },
+    /**
+     * Cuerpo gigante: cambia el radio físico (crece y se achica en `growTicks`,
+     * sólo en espacio libre). La patada también empuja rivales: alcance de
+     * patada escalado por el tamaño, `kickImpulse` y `kickGap` entre impactos al mismo rival.
+     */
+    giant: { ticks: sec(3), radiusMult: 1.35, massMult: 1.8, accelMult: 0.75, growTicks: sec(0.3), kickImpulse: 1.5 * K, kickGap: sec(0.6), cooldown: sec(13) },
   },
   verity: {
     anger: { ticks: sec(5), accelMult: 1.2, speedMult: 1.2, kickMult: 1.3, cooldown: sec(13) },
-    /** TNT: punto de caída fijo al lanzar; vuela `flightTicks` y explota `fuse` después de aterrizar. */
-    tnt: { range: 8 * R, flightTicks: sec(0.5), fuse: sec(2), radius: 5 * R, ballImpulse: 1.6 * K, playerImpulse: 1.2 * K, cooldown: sec(13) },
+    /**
+     * TNT: punto de caída fijo al lanzar; vuela `flightTicks` y explota `fuse`
+     * después de aterrizar (2 s desde el lanzamiento). Aturde `stunTicks` a los
+     * rivales alcanzados. Varias a la vez, hasta `maxActive` por Verity.
+     */
+    tnt: { range: 8 * R, flightTicks: sec(0.5), fuse: sec(1.5), radius: 5 * R, ballImpulse: 1.6 * K, playerImpulse: 1.2 * K, stunTicks: sec(1), maxActive: 6, cooldown: sec(1) },
   },
   thanos: {
     /** Intervalo compartido entre activaciones de gemas. */
@@ -336,7 +348,42 @@ export const POWERS = {
     space: { range: 12 * R, windup: sec(0.25), cooldown: sec(12) },
     power: { kickMult: 1.8, ticks: sec(2), cooldown: sec(10) },
   },
+  // ---- tercera tanda ----
+  bendy: {
+    /** Mancha: charco que cae (`flightTicks`) donde va el rival más cercano; dura `ticks`; mancha la pantalla `inkTicks` (una vez por charco y rival). */
+    puddle: { range: 10 * R, flightTicks: sec(0.3), radius: 2.2 * R, ticks: sec(4), inkTicks: sec(1.5), cooldown: sec(7) },
+    /** Forma de tinta: velocidad ×speedMult, sin patear ni Q; rastro de segmentos (`segTicks`, hasta `maxSegs`) que mancha `inkTicks`. */
+    form: { ticks: sec(3), speedMult: 1.6, segTicks: sec(2), dropEvery: 3, radius: 1.1 * R, maxSegs: 48, inkTicks: sec(1), cooldown: sec(12) },
+  },
+  jeff: {
+    /** Chorro: `ticks` en la dirección fijada al activar; empuje continuo por tick (aceleración con tope de velocidad en esa dirección). */
+    water: { ticks: sec(2), range: 9 * R, halfWidth: 0.6 * R, ballAccel: 0.3, ballMax: 9, playerAccel: 0.2, playerMax: 5, moveMult: 0.65, cooldown: sec(8) },
+    /**
+     * Tragar: un rival a `range` (borde a borde) dentro del cono frontal. Lo
+     * lleva hasta `holdTicks`; E de nuevo lo escupe. Recarga `cooldown` al
+     * capturar o `missCooldown` si falla. Bloqueado `kickoffLock` tras cada saque.
+     */
+    swallow: { range: 0.7 * R, cone: 60, holdTicks: sec(3), carrySlow: 0.2, spitImpulse: 2.6 * K, stunTicks: sec(0.5), kickoffLock: sec(3), missCooldown: sec(2), cooldown: sec(24) },
+  },
+  goku: {
+    /** Velocidad base (Súper: Super Saiyajin). */
+    speedMult: 1,
+    /**
+     * Kamehameha: se carga manteniendo Q (hasta `maxCharge`) y sale al soltar.
+     * El impulso escala con la carga (mínimo `minFrac`). A carga máxima la
+     * pelota queda con energía `energyTicks`: el primer rival que la toca
+     * recibe `energyImpulse` y `energyStun`.
+     */
+    kame: { maxCharge: sec(1.2), minFrac: 0.3, range: 18 * R, halfWidth: 0.5 * R, ballImpulse: 2.2 * K, playerImpulse: 1.2 * K, moveMult: 0.5, beamTicks: sec(0.3), energyTicks: sec(1.5), energyImpulse: 1.2 * K, energyStun: sec(0.6), cooldown: sec(9) },
+    /** Transmisión instantánea: junto a la pelota (hasta `range`, media cancha), del lado opuesto al arco rival. */
+    blink: { range: 370, kickMult: 1.75, kickTicks: sec(1.2), waveRadius: 2.5 * R, waveImpulse: 0.9 * K, cooldown: sec(12) },
+    /** Instinto de combate: una carga por patada a la pelota (máximo una cada `gap`); con `max` la próxima Q o E se potencia. */
+    ki: { max: 5, gap: sec(1), freeTicks: sec(3), chargeMult: 0.5, pushMult: 1.3 },
+  },
 };
+
+/** Tinta de Bendy: secuencia continua máxima y luego inmunidad (también sin cooldowns). */
+export const INK = { maxRun: sec(2.5), immuneTicks: sec(1) };
 
 export type PowerConfig = typeof POWERS;
 
@@ -425,7 +472,7 @@ export const SUPER_POWERS: PowerConfig = {
   },
   thor: {
     hammer: { ...POWERS.thor.hammer, range: 14 * R, radius: 0.95 * R, ballImpulse: 1.9 * K, playerImpulse: 1.3 * K, stunTicks: sec(0.55), cooldown: sec(8) },
-    bolt: { ...POWERS.thor.bolt, range: 14 * R, delay: sec(0.35), radius: 2 * R, stunTicks: sec(0.75), cooldown: sec(10) },
+    bolt: { ...POWERS.thor.bolt, range: 14 * R, delay: sec(0.35), radius: 3 * R, stunTicks: sec(0.75), cooldown: sec(10) },
   },
   strange: {
     rewind: { range: 18 * R, ticks: sec(2.5), cooldown: sec(10) },
@@ -440,16 +487,16 @@ export const SUPER_POWERS: PowerConfig = {
     jetpack: { ticks: sec(3), accelMult: 1.65, speedMult: 1.5, cooldown: sec(10) },
   },
   baldi: {
-    ruler: { range: 16 * R, speed: 16, radius: 0.55 * R, cooldown: sec(7) },
-    quiz: { ...POWERS.baldi.quiz, range: 14 * R, ticks: sec(3), multiply: true },
+    ruler: { range: 25.6 * R, speed: 20, radius: 0.55 * R, cooldown: sec(7) },
+    quiz: { ...POWERS.baldi.quiz, range: 14 * R, multiply: true },
   },
   ibai: {
     glove: { ...POWERS.ibai.glove, range: 2 * R, playerImpulse: 2.7 * K, cooldown: sec(6) },
-    giant: { ...POWERS.ibai.giant, ticks: sec(4), radiusMult: 1.5, massMult: 2.2, accelMult: 0.7, cooldown: sec(11) },
+    giant: { ...POWERS.ibai.giant, ticks: sec(4), radiusMult: 1.5, massMult: 2.2, accelMult: 0.7, kickImpulse: 2 * K, cooldown: sec(11) },
   },
   verity: {
     anger: { ticks: sec(5), accelMult: 1.35, speedMult: 1.35, kickMult: 1.5, cooldown: sec(10) },
-    tnt: { ...POWERS.verity.tnt, range: 10 * R, fuse: sec(1.6), radius: 6.5 * R, ballImpulse: 2 * K, playerImpulse: 1.5 * K, cooldown: sec(10) },
+    tnt: { ...POWERS.verity.tnt, range: 10 * R, radius: 6.5 * R, ballImpulse: 2 * K, playerImpulse: 1.5 * K },
   },
   thanos: {
     gap: sec(0.5),
@@ -458,6 +505,20 @@ export const SUPER_POWERS: PowerConfig = {
     reality: { ticks: sec(1.1), between: sec(2), cooldown: sec(13) },
     space: { range: 18 * R, windup: sec(0.2), cooldown: sec(10) },
     power: { kickMult: 2.2, ticks: sec(2.5), cooldown: sec(8) },
+  },
+  bendy: {
+    puddle: { ...POWERS.bendy.puddle, radius: 2.2 * 1.3 * R, ticks: sec(5) },
+    form: { ...POWERS.bendy.form, ticks: sec(4), speedMult: 1.8 },
+  },
+  jeff: {
+    water: { ...POWERS.jeff.water, halfWidth: 0.6 * 1.25 * R, ballAccel: 0.3 * 1.3, ballMax: 9 * 1.3, playerAccel: 0.2 * 1.3, playerMax: 5 * 1.3 },
+    swallow: { ...POWERS.jeff.swallow, carrySlow: 0, spitImpulse: 2.6 * 1.3 * K },
+  },
+  goku: {
+    speedMult: 1.2,
+    kame: { ...POWERS.goku.kame, maxCharge: sec(0.7), halfWidth: 0.5 * 1.3 * R, ballImpulse: 2.2 * 1.4 * K, playerImpulse: 1.2 * 1.4 * K, cooldown: sec(7) },
+    blink: { ...POWERS.goku.blink, kickMult: 2, cooldown: sec(9) },
+    ki: { ...POWERS.goku.ki, max: 3 },
   },
 };
 
@@ -469,10 +530,11 @@ export function powersFor(mode: string): PowerConfig {
 export type HeroId =
   | 'spider' | 'batman' | 'hulk' | 'superman'
   | 'hawkeye' | 'widow' | 'cap' | 'panther' | 'ironman' | 'flash' | 'thor' | 'strange'
-  | 'homer' | 'cj' | 'baldi' | 'ibai' | 'verity' | 'thanos';
+  | 'homer' | 'cj' | 'baldi' | 'ibai' | 'verity' | 'thanos'
+  | 'bendy' | 'jeff' | 'goku';
 export const STARTER_IDS: HeroId[] = ['spider', 'batman', 'hulk', 'superman'];
 /** Todos los héroes que existen (validación de mensajes y del servidor), incluido el secreto. */
-export const HERO_IDS: HeroId[] = [...STARTER_IDS, 'hawkeye', 'widow', 'cap', 'panther', 'ironman', 'flash', 'thor', 'strange', 'homer', 'cj', 'baldi', 'ibai', 'verity', 'thanos'];
+export const HERO_IDS: HeroId[] = [...STARTER_IDS, 'hawkeye', 'widow', 'cap', 'panther', 'ironman', 'flash', 'thor', 'strange', 'homer', 'cj', 'baldi', 'ibai', 'verity', 'thanos', 'bendy', 'jeff', 'goku'];
 /** Héroes secretos: sólo por administración; fuera de cofres, catálogos públicos y bots. */
 export const SECRET_IDS: HeroId[] = ['thanos'];
 export const isSecret = (h: HeroId): boolean => SECRET_IDS.includes(h);
@@ -507,7 +569,11 @@ export const HERO_CATALOG: Record<HeroId, { rarity: HeroRarity; role: HeroRole; 
   verity: { rarity: 'epic', role: 'ataque', starter: false },
   // secreto: esta rareza no se muestra (se ve "Secreto") ni participa de cofres (SECRET_IDS)
   thanos: { rarity: 'secret', role: 'control', starter: false },
+  bendy: { rarity: 'epic', role: 'control', starter: false },
+  jeff: { rarity: 'legendary', role: 'defensa', starter: false },
+  goku: { rarity: 'legendary', role: 'ataque', starter: false },
 };
+
 
 export const RARITY_LABEL: Record<HeroRarity, string> = { common: 'Común', rare: 'Raro', epic: 'Épico', legendary: 'Legendario', secret: 'Secreto' };
 
@@ -530,6 +596,9 @@ export interface HeroInfo {
   e: PowerInfo;
   /** Thanos: las cinco gemas (Q activa la seleccionada, E pasa a la siguiente, 1–5 eligen). */
   gems?: PowerInfo[];
+  /** Pasiva (Goku). En Clásico no hay poderes ni pasivas. */
+  passive?: PowerInfo;
+
 }
 
 export const GEM_IDS = ['time', 'mind', 'reality', 'space', 'power'] as const;
@@ -590,7 +659,7 @@ function generated(P: PowerConfig, superMode: boolean): Record<Exclude<HeroId, '
     },
     homer: {
       name: 'Homero',
-      q: { name: 'Rosquilla atrapante', desc: `Rosquilla (${inR(P.homer.donut.range)}) que apunta sola a la pelota o a un rival. Rival: no puede moverse ${secs(P.homer.donut.trapTicks)} (sí patear y usar poderes sin desplazamiento). Pelota: pierde ${pct(P.homer.donut.ballSlow)} de velocidad y durante ${secs(P.homer.donut.ballTicks)} patadas y poderes la impulsan ${pct(P.homer.donut.impulseCut)} menos.`, cooldown: P.homer.donut.cooldown },
+      q: { name: 'Rosquilla atrapante', desc: `Rosquilla (${inR(P.homer.donut.range)}) que apunta sola a la pelota o a un rival. Rival: no puede moverse ${secs(P.homer.donut.trapTicks)} (sí patear y usar poderes sin desplazamiento). Pelota: pierde ${pct(P.homer.donut.ballSlow)} de velocidad, durante ${secs(P.homer.donut.ballTicks)} las patadas la impulsan ${pct(P.homer.donut.impulseCut)} menos y queda protegida ${secs(Math.min(P.homer.donut.protectTicks, P.homer.donut.ballTicks))}: ningún poder de ningún equipo la mueve ni le aplica estados (sí patadas, choques y goles).`, cooldown: P.homer.donut.cooldown },
       e: { name: 'Charco de cerveza', desc: `Tira una cerveza ${inR(P.homer.beer.ahead)} adelante: charco de ${inR(P.homer.beer.radius)} durante ${secs(P.homer.beer.ticks)} donde todos (también vos) resbalan y cuesta frenar o girar. La pelota no cambia.`, cooldown: P.homer.beer.cooldown },
     },
     cj: {
@@ -601,17 +670,17 @@ function generated(P: PowerConfig, superMode: boolean): Record<Exclude<HeroId, '
     baldi: {
       name: 'Baldi',
       q: { name: 'Regla de detención', desc: `Regla (${inR(P.baldi.ruler.range)}) que apunta sola a la pelota: la deja quieta una vez, sin congelarla. No afecta jugadores.`, cooldown: P.baldi.ruler.cooldown },
-      e: { name: 'Quiz matemático', desc: `Al rival más alineado delante tuyo (${inR(P.baldi.quiz.range)}): tras ${secs(P.baldi.quiz.windup)} recibe una cuenta${P.baldi.quiz.multiply ? ' (suma, resta o multiplicación)' : ' (suma o resta)'} y no puede jugar hasta responder bien (máximo ${secs(P.baldi.quiz.ticks)}). Sin objetivo no gasta la recarga.`, cooldown: P.baldi.quiz.cooldown },
+      e: { name: 'Quiz matemático', desc: `Al rival más alineado delante tuyo (${inR(P.baldi.quiz.range)}): tras ${secs(P.baldi.quiz.windup)} recibe una cuenta${P.baldi.quiz.multiply ? ' (suma, resta o multiplicación)' : ' (suma o resta)'} y no puede jugar hasta responder (máximo ${secs(P.baldi.quiz.ticks)}). Bien: vuelve a jugar al instante. Mal o sin responder: queda aturdido ${secs(P.baldi.quiz.wrongStun)}. Sin objetivo no gasta la recarga.`, cooldown: P.baldi.quiz.cooldown },
     },
     ibai: {
       name: 'Ibai',
-      q: { name: 'Guante de boxeo', desc: `Golpe corto (${inR(P.ibai.glove.range)} desde tu borde) al rival más cercano delante tuyo: empujón fuerte, sin aturdir. No toca pelota ni aliados.`, cooldown: P.ibai.glove.cooldown },
-      e: { name: 'Cuerpo gigante', desc: `Durante ${secs(P.ibai.giant.ticks)}: tamaño ${mult(P.ibai.giant.radiusMult)} (también el choque), masa ${mult(P.ibai.giant.massMult)} y ${pct(1 - P.ibai.giant.accelMult)} menos aceleración. Sólo crece en el espacio libre.`, cooldown: P.ibai.giant.cooldown },
+      q: { name: 'Guante de boxeo', desc: `Golpe corto (${inR(P.ibai.glove.range)} desde tu borde) al rival más cercano delante tuyo: empujón fuerte y aturdimiento de ${secs(P.ibai.glove.stunTicks)}. Sólo si el golpe conecta de verdad. No toca pelota ni aliados.`, cooldown: P.ibai.glove.cooldown },
+      e: { name: 'Cuerpo gigante', desc: `Durante ${secs(P.ibai.giant.ticks)}: tamaño ${mult(P.ibai.giant.radiusMult)} (también el choque), masa ${mult(P.ibai.giant.massMult)} y ${pct(1 - P.ibai.giant.accelMult)} menos aceleración. La patada también empuja a los rivales a tu alcance (una vez por patada, ${secs(P.ibai.giant.kickGap)} entre golpes al mismo rival) y sigue pateando la pelota. Sólo crece en el espacio libre.`, cooldown: P.ibai.giant.cooldown },
     },
     verity: {
       name: 'Verity',
       q: { name: 'Enfado', desc: `Durante ${secs(P.verity.anger.ticks)}: aceleración y velocidad +${pct(P.verity.anger.accelMult - 1)} y patada +${pct(P.verity.anger.kickMult - 1)}.`, cooldown: P.verity.anger.cooldown },
-      e: { name: 'TNT', desc: `Tira una TNT (${inR(P.verity.tnt.range)}) que apunta sola a la pelota o a un rival; el lugar de caída queda fijo y explota ${secs(P.verity.tnt.fuse)} después de caer: ${inR(P.verity.tnt.radius)} que empuja pelota y a todos (también a vos).`, cooldown: P.verity.tnt.cooldown },
+      e: { name: 'TNT', desc: `Tira una TNT (${inR(P.verity.tnt.range)}) que apunta sola a la pelota o a un rival; el lugar de caída queda fijo y explota ${secs(P.verity.tnt.flightTicks + P.verity.tnt.fuse)} después de lanzarla: ${inR(P.verity.tnt.radius)} que empuja pelota y a todos (también a vos) y aturde ${secs(P.verity.tnt.stunTicks)} a los rivales. Hasta ${P.verity.tnt.maxActive} TNT a la vez.`, cooldown: P.verity.tnt.cooldown },
     },
     thanos: {
       name: 'Thanos',
@@ -624,6 +693,22 @@ function generated(P: PowerConfig, superMode: boolean): Record<Exclude<HeroId, '
         { name: 'Gema del Espacio', desc: `Pelota a menos de ${inR(P.thanos.space.range)}: tras ${secs(P.thanos.space.windup)} aparecés junto a ella sin moverla.`, cooldown: P.thanos.space.cooldown },
         { name: 'Gema del Poder', desc: `Tu próxima patada (dentro de ${secs(P.thanos.power.ticks)}) sale +${pct(P.thanos.power.kickMult - 1)} más fuerte.`, cooldown: P.thanos.power.cooldown },
       ],
+    },
+    bendy: {
+      name: 'Bendy',
+      q: { name: 'Mancha de tinta', desc: `Tira un charco de tinta (${inR(P.bendy.puddle.radius)}) adonde va el rival más cercano (${inR(P.bendy.puddle.range)}); sin rival, hacia donde mirás. Dura ${secs(P.bendy.puddle.ticks)}: el rival que lo pisa ve su pantalla manchada ${secs(P.bendy.puddle.inkTicks)} (una vez por charco).`, cooldown: P.bendy.puddle.cooldown },
+      e: { name: 'Forma de tinta', desc: `Durante ${secs(P.bendy.form.ticks)} te volvés un charco: +${pct(P.bendy.form.speedMult - 1)} de velocidad y un rastro (${secs(P.bendy.form.segTicks)}) que mancha ${secs(P.bendy.form.inkTicks)} la pantalla de los rivales que lo tocan. No podés patear ni usar Q.`, cooldown: P.bendy.form.cooldown },
+    },
+    jeff: {
+      name: 'Jeff the Land Shark',
+      q: { name: 'Chorro de agua', desc: `Chorro continuo de ${secs(P.jeff.water.ticks)} (${inR(P.jeff.water.range)}, recto hacia donde mirabas al activarlo) que empuja la pelota y a los rivales. Te movés al ${pct(P.jeff.water.moveMult)} de tu velocidad. Las paredes lo cortan.`, cooldown: P.jeff.water.cooldown },
+      e: { name: 'Tragar y escupir', desc: `Traga a un rival pegado delante tuyo y lo lleva hasta ${secs(P.jeff.swallow.holdTicks)}${P.jeff.swallow.carrySlow > 0 ? ` (vas ${pct(P.jeff.swallow.carrySlow)} más lento, sin patear ni Q)` : ' (sin perder velocidad; sin patear ni Q)'}. E otra vez lo escupe hacia donde mirás; al terminar el tiempo lo escupe solo y queda aturdido ${secs(P.jeff.swallow.stunTicks)}. No se puede en los ${secs(P.jeff.swallow.kickoffLock)} después de cada saque. Si falla, recarga ${secs(P.jeff.swallow.missCooldown)}.`, cooldown: P.jeff.swallow.cooldown },
+    },
+    goku: {
+      name: superMode ? 'Goku (Super Saiyajin)' : 'Goku',
+      q: { name: 'Kamehameha', desc: `Mantené Q para cargar (hasta ${secs(P.goku.kame.maxCharge)}, te movés al ${pct(P.goku.kame.moveMult)}) y soltá: rayo (${inR(P.goku.kame.range)}) que apunta primero a la pelota y empuja hasta ${mult(P.goku.kame.ballImpulse / K)} patada, y a los rivales que atraviesa. A carga máxima la pelota queda con energía ${secs(P.goku.kame.energyTicks)}: el primer rival que la toca sale empujado y aturdido ${secs(P.goku.kame.energyStun)}.`, cooldown: P.goku.kame.cooldown },
+      e: { name: 'Transmisión instantánea', desc: `Aparecés junto a la pelota (hasta media cancha), del lado opuesto al arco rival. Tu primera patada en ${secs(P.goku.blink.kickTicks)} sale +${pct(P.goku.blink.kickMult - 1)} más fuerte y una onda aparta a los rivales cercanos (no la pelota). Sin lugar libre no gasta la recarga.`, cooldown: P.goku.blink.cooldown },
+      passive: { name: 'Instinto de combate', desc: `Cada patada a la pelota da una carga de ki (máximo una por segundo; los poderes no cuentan). Con ${P.goku.ki.max} cargas la próxima Q o E se potencia: Q carga en la mitad de tiempo y empuja +${pct(P.goku.ki.pushMult - 1)}; E te da una segunda transmisión gratis durante ${secs(P.goku.ki.freeTicks)}. El ki se reinicia con cada gol.`, cooldown: 0 },
     },
     strange: {
       name: 'Doctor Strange',

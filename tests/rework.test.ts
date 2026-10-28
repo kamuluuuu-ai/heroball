@@ -1049,7 +1049,7 @@ describe('valores pedidos (unidades R, K y segundos)', () => {
     expect([sec(P.flash.sprint.ticks), P.flash.sprint.accelMult, P.flash.sprint.speedMult, sec(P.flash.sprint.cooldown)]).toEqual([2, 2, 1.9, 10]);
     expect([sec(P.flash.trail.ticks), P.flash.trail.accelMult, P.flash.trail.speedMult, sec(P.flash.trail.segTicks), P.flash.trail.slowPct, sec(P.flash.trail.lingerTicks), sec(P.flash.trail.cooldown)]).toEqual([1.5, 1.5, 1.45, 1.2, 0.3, 0.25, 11]);
     expect([P.thor.hammer.radius / R, P.thor.hammer.range / R, P.thor.hammer.ballImpulse / K, sec(P.thor.hammer.elecTicks), sec(P.thor.hammer.stunTicks), sec(P.thor.hammer.cooldown)]).toEqual([0.7, 10, 1.4, 1.5, 0.35, 10]);
-    expect([P.thor.bolt.cone * 2, P.thor.bolt.range / R, sec(P.thor.bolt.delay), P.thor.bolt.radius / R, sec(P.thor.bolt.stunTicks), sec(P.thor.bolt.cooldown)]).toEqual([60, 10, 0.4, 1.3, 0.55, 12]);
+    expect([P.thor.bolt.cone * 2, P.thor.bolt.range / R, sec(P.thor.bolt.delay), P.thor.bolt.radius / R, sec(P.thor.bolt.stunTicks), sec(P.thor.bolt.cooldown)]).toEqual([60, 10, 0.4, 1.95, 0.55, 12]);
     expect([P.strange.rewind.range / R, sec(P.strange.rewind.ticks), sec(P.strange.rewind.cooldown)]).toEqual([12, 1.5, 12]);
     expect([sec(P.strange.portal.channel), P.strange.portal.goalOffset / R, sec(P.strange.portal.cooldown)]).toEqual([0.35, 3, 14]);
   });
@@ -1068,7 +1068,7 @@ describe('valores pedidos (unidades R, K y segundos)', () => {
     expect([sec(P.flash.sprint.ticks), P.flash.sprint.accelMult, P.flash.sprint.speedMult, sec(P.flash.sprint.cooldown)]).toEqual([3, 2.8, 2.5, 8]);
     expect([sec(P.flash.trail.ticks), P.flash.trail.accelMult, P.flash.trail.speedMult, sec(P.flash.trail.segTicks), P.flash.trail.slowPct, sec(P.flash.trail.cooldown)]).toEqual([2, 1.9, 1.75, 1.6, 0.4, 9]);
     expect([P.thor.hammer.radius / R, P.thor.hammer.range / R, P.thor.hammer.ballImpulse / K, sec(P.thor.hammer.elecTicks), sec(P.thor.hammer.stunTicks), sec(P.thor.hammer.cooldown)]).toEqual([0.95, 14, 1.9, 1.5, 0.55, 8]);
-    expect([P.thor.bolt.range / R, P.thor.bolt.radius / R, sec(P.thor.bolt.delay), sec(P.thor.bolt.stunTicks), sec(P.thor.bolt.cooldown)]).toEqual([14, 2, 0.35, 0.75, 10]);
+    expect([P.thor.bolt.range / R, P.thor.bolt.radius / R, sec(P.thor.bolt.delay), sec(P.thor.bolt.stunTicks), sec(P.thor.bolt.cooldown)]).toEqual([14, 3, 0.35, 0.75, 10]);
     expect([P.strange.rewind.range / R, sec(P.strange.rewind.ticks), sec(P.strange.rewind.cooldown)]).toEqual([18, 2.5, 10]);
     expect([sec(P.strange.portal.channel), sec(P.strange.portal.resistTicks), P.strange.portal.resist, sec(P.strange.portal.cooldown)]).toEqual([0.2, 0.75, 0.4, 10]);
   });

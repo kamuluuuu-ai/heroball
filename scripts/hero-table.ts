@@ -12,6 +12,14 @@ for (const id of byRarity(PUBLIC_HERO_IDS)) {
   const tag = `${RARITY_LABEL[c.rarity]}${c.starter ? ' (inicial)' : ''} · ${ROLE_LABEL[c.role]}`;
   console.log(`| ${h.name} | ${tag} | **${h.q.name}**: ${h.q.desc} CD ${cd(h.q.cooldown)} | **${h.e.name}**: ${h.e.desc} CD ${cd(h.e.cooldown)} |`);
 }
+// pasivas (sin tecla)
+for (const id of byRarity(PUBLIC_HERO_IDS)) {
+  const h = heroInfo(id, mode);
+  if (h.passive) {
+    console.log('');
+    console.log(`**Pasiva de ${h.name} · ${h.passive.name}**: ${h.passive.desc}`);
+  }
+}
 // personajes secretos: gemas (teclas 1–5) en lugar de Q/E fijas
 for (const id of SECRET_IDS) {
   const h = heroInfo(id, mode);

@@ -84,6 +84,42 @@ describe('renderer con los personajes nuevos', () => {
     });
   }
 
+  for (const mode of ['heroes', 'super'] as const) {
+    it(`Bendy, Jeff y Goku: tinta, chorro, tragado, Kamehameha y transmisión se dibujan (${mode})`, () => {
+      const s = createGame({
+        mode, timeLimitMin: 3, scoreLimit: 3, players: [
+          { id: 'me', team: 'red', hero: 'goku' }, { id: 'b', team: 'blue', hero: 'bendy' },
+          { id: 'c', team: 'red', hero: 'jeff' }, { id: 'd', team: 'blue', hero: 'goku' },
+          { id: 'e', team: 'red', hero: 'bendy' }, { id: 'f', team: 'blue', hero: 'jeff' },
+        ],
+      });
+      s.phase = 'playing';
+      s.liveTicks = 600;
+      s.players.forEach((p, i) => { p.d.x = (p.team === 'red' ? -30 : 30) + (i % 2) * 6; p.d.y = (i - 2.5) * 30; p.ax = p.team === 'red' ? 1 : -1; p.ay = 0; });
+      const { ctx, calls } = fakeCtx();
+      const r = new Renderer(fakeCanvas(ctx) as unknown as HTMLCanvasElement);
+      const names = new Map(s.players.map((p) => [p.id, p.id]));
+      const seq = [IN.Q, IN.Q, IN.Q, IN.Q, 0, IN.E, 0, IN.KICK, 0, IN.RIGHT, IN.E, 0];
+      const seen = new Set<string>();
+      let inkedMe = false;
+      for (let i = 0; i < 600; i++) {
+        for (const p of s.players) setInput(s, p.id, seq[(i + p.id.charCodeAt(0)) % seq.length]);
+        s.events = [];
+        step(s);
+        for (const z of s.zones) seen.add(z.kind);
+        if (s.players.some((p) => p.holding)) seen.add('holding');
+        if (s.players.some((p) => p.charge > 0)) seen.add('charge');
+        if (i === 100) s.players[0].ink = 60;
+        if (s.players[0].ink > 0) inkedMe = true;
+        r.addEvents(s.events, s, names);
+        r.draw(s, i % 2 ? 'me' : 'b', { names, zoom: 1, showNames: true, debug: false, reducedFx: i % 3 === 0 });
+      }
+      expect(calls()).toBeGreaterThan(1000);
+      expect(inkedMe).toBe(true);
+      for (const k of ['ink', 'water', 'charge']) expect(seen.has(k)).toBe(true);
+    });
+  }
+
   it('cada héroe se dibuja (con retrato o su reemplazo)', () => {
     const { ctx } = fakeCtx();
     const r = new Renderer(fakeCanvas(ctx) as unknown as HTMLCanvasElement);

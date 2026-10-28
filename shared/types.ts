@@ -121,6 +121,34 @@ export interface PlayerState {
   half: -1 | 1;
   /** Se incrementa en cada teletransporte: la vista no lo interpola como un recorrido. */
   warp: number;
+  /** Tope de la incapacidad continua actual (STUN.maxTicks salvo la penalización del quiz). */
+  incapCap: number;
+  /** Ibai gigante: tick del último golpe de patada a cada rival (intervalo mínimo). */
+  kickHits: Record<string, number>;
+  /** Tinta de Bendy en la pantalla de este jugador: ticks, secuencia continua, inmunidad y semilla del dibujo. */
+  ink: number;
+  inkRun: number;
+  inkImmune: number;
+  inkSeed: number;
+  /** Bendy: forma de tinta (ticks). */
+  inkForm: number;
+  /** Jeff: chorro (ticks) y su dirección fija. */
+  spray: number;
+  sprayDx: number;
+  sprayDy: number;
+  /** Jeff: rival tragado y ticks que le quedan dentro. */
+  holding: string | null;
+  holdTicks: number;
+  /** Tragado por este Jeff (fuera de la física; sin moverse ni actuar). */
+  eatenBy: string | null;
+  /** Goku: ticks de carga del Kamehameha (0 = no carga) y si la carga usa el ki. */
+  charge: number;
+  chargeKi: boolean;
+  /** Goku: cargas de ki, espera hasta la próxima, patada potenciada pendiente y segunda transmisión gratis. */
+  ki: number;
+  kiGap: number;
+  blinkKick: number;
+  freeBlink: number;
 }
 
 export interface Projectile {
@@ -173,10 +201,16 @@ export interface Tether {
  * - 'space': Thanos, aviso de la Gema del Espacio (destino al resolver).
  * - 'mind': Thanos, enlace visual con el rival controlado.
  * - 'timeGhost': Thanos, recorrido fantasma de la Gema del Tiempo (pts = trayecto).
+ * - 'ink': Bendy, charco de tinta (cae tras `delay`, luego dura `ticks`); pts[0] = lanzamiento.
+ * - 'inkTrail': Bendy, rastro de la forma de tinta (cada punto con su tick de creación).
+ * - 'water': Jeff, chorro desde el dueño en (dx, dy); `r` = medio ancho, `len` = largo libre.
+ * - 'kame': Goku, rayo ya disparado (sólo para dibujar); `r` = medio ancho, `len` = largo, `ang` = carga 0..1.
  */
 export interface Zone {
   id: number;
-  kind: 'pulse' | 'laser' | 'missile' | 'bolt' | 'trail' | 'portal' | 'beer' | 'tnt' | 'quiz' | 'punch' | 'space' | 'mind' | 'timeGhost';
+  kind: 'pulse' | 'laser' | 'missile' | 'bolt' | 'trail' | 'portal' | 'beer' | 'tnt' | 'quiz' | 'punch' | 'space' | 'mind' | 'timeGhost' | 'ink' | 'inkTrail' | 'water' | 'kame';
+  /** Rivales ya alcanzados (charco de tinta: una vez por rival). */
+  hits?: string[];
   /** Jugador objetivo (quiz, guante, mente). */
   target?: string;
   owner: string;
@@ -213,6 +247,9 @@ export type GameEvent =
   | { type: 'quiz'; id: string; by: string; result: 'open' | 'ok' | 'wrong' | 'timeout' }
   | { type: 'illusion'; by: string; team: Team; result: 'start' | 'end' }
   | { type: 'gem'; id: string; gem: number }
+  | { type: 'swallow'; id: string; by: string; result: 'in' | 'out' }
+  | { type: 'ink'; id: string }
+  | { type: 'ki'; id: string; ki: number }
   | { type: 'kickoff' }
   | { type: 'end'; winner: Team | null }
   | { type: 'overtime' };
@@ -264,4 +301,10 @@ export interface GameState {
   /** Ilusión activa de la Gema de la Realidad y ticks hasta que se permita otra. */
   illusion: Illusion | null;
   illusionGap: number;
+  /** Ticks de juego desde el último saque (bloqueo de Tragar de Jeff). */
+  liveTicks: number;
+  /** Energía del Kamehameha en la pelota: ticks y quién la puso. */
+  ballKi: number;
+  ballKiBy: string | null;
 }
+

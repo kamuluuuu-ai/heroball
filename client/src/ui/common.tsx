@@ -91,6 +91,15 @@ export function PowerList({ hero, mode = 'heroes' }: { hero: HeroId; mode?: Game
           </div>
         </div>
       ))}
+      {h.passive && (
+        <div className="hero-power">
+          <span className="power-icon passive-icon" aria-hidden="true">◆</span>
+          <div>
+            <b>Pasiva · {h.passive.name}</b>
+            <div className="muted">{h.passive.desc}</div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { GEM_COLOR, GEM_IDS, GEM_LABEL, POWERS, TICK_RATE, heroInfo, powersFor } from '../../../shared/config';
 import { clockText } from '../../../shared/game';
-import { gemActive, powerActive } from '../../../shared/powers';
+import { gemActive, kameMaxCharge, kiReady, powerActive, swallowLocked, tntCount } from '../../../shared/powers';
 import type { GameState, PlayerState } from '../../../shared/types';
 import { IN } from '../../../shared/types';
 import { drawGemIcon, drawPowerIcon } from '../game/heroArt';
@@ -189,6 +189,8 @@ class HudWriter {
     private names: () => Map<string, string>,
   ) {}
 
+  private note: HTMLDivElement | null = null;
+
   private slot(key: 'Q' | 'E'): Slot {
     const root = document.createElement('div');
     root.className = 'pslot';
@@ -265,7 +267,7 @@ class HudWriter {
       if (q) {
         const who = document.createElement('div');
         who.className = 'quiz-by';
-        who.textContent = `Quiz de ${this.names().get(q.by) ?? 'Baldi'}: respondé para volver a jugar`;
+        who.textContent = `Quiz de ${this.names().get(q.by) ?? 'Baldi'}: si fallás o se acaba el tiempo, quedás aturdido`;
         const text = document.createElement('div');
         text.className = 'quiz-q';
         text.textContent = `${q.text} = ?`;
@@ -319,9 +321,11 @@ class HudWriter {
       this.gems.style.display = 'none';
       this.quiz.style.display = 'none';
       L.quiz = '';
+      if (this.note) this.note.style.display = 'none';
       return;
     }
-    if (s.score.red !== L.red) this.red.textContent = String((L.red = s.score.red));
+    if (s.score.red
+ !== L.red) this.red.textContent = String((L.red = s.score.red));
     if (s.score.blue !== L.blue) this.blue.textContent = String((L.blue = s.score.blue));
     const clock = clockText(s) + (s.overtime ? ' +' : '');
     if (clock !== L.clock) {
@@ -332,6 +336,7 @@ class HudWriter {
     this.powers.style.display = p ? '' : 'none';
     const thanos = p?.hero === 'thanos';
     this.gems.style.display = thanos ? '' : 'none';
+    this.paintNote(s, p);
     if (!p) {
       this.quiz.style.display = 'none';
       L.quiz = '';
@@ -358,8 +363,8 @@ class HudWriter {
       if (thanos) this.buildGems();
       this.q.ammo.textContent = '';
     }
-    // aturdido, atrapado, controlado o con quiz: el texto dice por qué
-    const why = p.stun > 0 ? 'Aturdido' : p.mind > 0 ? 'Controlado' : p.quiz ? 'Quiz' : null;
+    // aturdido, atrapado, controlado, tragado o con quiz: el texto dice por qué
+    const why = p.eatenBy ? 'Tragado' : p.stun > 0 ? 'Aturdido' : p.mind > 0 ? 'Controlado' : p.quiz ? 'Quiz' : null;
     const blocked = s.phase !== 'playing' || s.paused || why !== null;
     if (thanos) {
       const P = powersFor(s.mode).thanos;
@@ -386,12 +391,69 @@ class HudWriter {
       const t = '●'.repeat(Math.max(0, p.ammo)) + '○'.repeat(Math.max(0, shots - p.ammo));
       if (this.q.ammo.textContent !== t) this.q.ammo.textContent = t;
     }
+    // TNT activas de Verity, ki de Goku, carga del Kamehameha
+    const P = powersFor(s.mode);
+    const eTxt = p.hero === 'verity' ? `${tntCount(s, p)}/${P.verity.tnt.maxActive}`
+      : p.hero === 'goku' ? (p.freeBlink > 0 ? 'GRATIS' : '◆'.repeat(Math.min(p.ki, P.goku.ki.max)) + '◇'.repeat(Math.max(0, P.goku.ki.max - p.ki)))
+      : p.hero === 'jeff' && p.holding ? 'ESCUPIR' : '';
+    if (this.e!.ammo.textContent !== eTxt) this.e!.ammo.textContent = eTxt;
+    if (p.hero === 'goku') {
+      const qTxt = p.charge > 0 ? `${Math.round(Math.min(1, p.charge / kameMaxCharge(s, p)) * 100)}%` : kiReady(s, p) ? 'KI' : '';
+      if (this.q.ammo.textContent !== qTxt) this.q.ammo.textContent = qTxt;
+    }
     // misma regla que la simulación: activo mientras dura su lanzamiento, canalización o efecto propio
     const qCd = p.hero === 'cj' && p.ammo > 0 ? p.shotGap : p.cdQ;
     const qTotal = p.hero === 'cj' && p.ammo > 0 ? powersFor(s.mode).cj.gun.gap : info.q.cooldown;
     const trapped = p.trap > 0 ? 'Atrapado' : null;
-    this.paint(this.q, qCd, qTotal, blocked, powerActive(s, p, 'q'), s.noCd && !(p.hero === 'cj' && p.shotGap > 0), why);
-    this.paint(this.e!, p.cdE, info.e.cooldown, blocked, powerActive(s, p, 'e'), s.noCd, why ?? trapped);
+    // Bendy en forma de tinta o Jeff con alguien adentro: sin Q
+    const qWhy = why ?? (p.inkForm > 0 ? 'Forma de tinta' : p.holding ? 'Boca llena' : null);
+    // Jeff: Tragar bloqueado durante el saque y los primeros segundos (también sin cooldowns)
+    const eWhy = why ?? trapped ?? (p.hero === 'jeff' && !p.holding && swallowLocked(s) ? 'Tras el saque' : null);
+    this.paint(this.q, qCd, qTotal, blocked || qWhy !== null, powerActive(s, p, 'q'), s.noCd && !(p.hero === 'cj' && p.shotGap > 0), qWhy);
+    this.paint(this.e!, p.hero === 'goku' && p.freeBlink > 0 ? 0 : p.cdE, info.e.cooldown, blocked || eWhy !== null, powerActive(s, p, 'e'), s.noCd, eWhy);
+  }
+
+  /**
+   * Línea de estado (también en táctil, donde la barra de poderes se oculta):
+   * tragado por Jeff, bloqueo de Tragar, ki de Goku listo o segunda transmisión.
+   */
+  private paintNote(s: GameState, p: PlayerState | undefined): void {
+    if (!this.note) {
+      this.note = document.createElement('div');
+      this.note.className = 'hud-note';
+      this.note.setAttribute('aria-live', 'polite');
+      this.powers.parentElement?.append(this.note);
+    }
+    let t = '';
+    let kind = '';
+    if (p) {
+      const P = powersFor(s.mode);
+      const sec1 = (ticks: number) => (ticks / TICK_RATE).toFixed(1);
+      if (p.eatenBy) {
+        const j = s.players.find((o) => o.id === p.eatenBy);
+        t = `¡Te tragó ${this.names().get(p.eatenBy) ?? 'Jeff'}! No podés moverte: salís en ${sec1(j?.holdTicks ?? 0)} s o cuando te escupa`;
+        kind = 'eaten';
+      } else if (p.holding) {
+        t = `Tenés a alguien adentro (${sec1(p.holdTicks)} s): E para escupir`;
+        kind = 'jeff';
+      } else if (p.hero === 'jeff' && swallowLocked(s) && s.phase !== 'ended') {
+        const left = s.phase === 'playing' ? P.jeff.swallow.kickoffLock - s.liveTicks : P.jeff.swallow.kickoffLock;
+        t = `Tragar bloqueado tras el saque (${sec1(Math.max(0, left))} s)`;
+        kind = 'lock';
+      } else if (p.hero === 'goku' && p.freeBlink > 0) {
+        t = `Ki: segunda transmisión gratis (${sec1(p.freeBlink)} s) — E`;
+        kind = 'ki';
+      } else if (p.hero === 'goku' && kiReady(s, p) && p.charge === 0) {
+        t = 'Ki lleno: la próxima Q o E sale potenciada';
+        kind = 'ki';
+      } else if (p.hero === 'goku' && p.charge > 0) {
+        t = `Kamehameha ${Math.round(Math.min(1, p.charge / kameMaxCharge(s, p)) * 100)}% — soltá Q para disparar`;
+        kind = 'ki';
+      }
+    }
+    if (this.note.textContent !== t) this.note.textContent = t;
+    this.note.style.display = t ? '' : 'none';
+    if (this.note.dataset.kind !== kind) this.note.dataset.kind = kind;
   }
 
   private paint(sl: Slot, cd: number, total: number, blocked: boolean, active: boolean, noCd: boolean, why: string | null) {

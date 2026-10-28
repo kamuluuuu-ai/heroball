@@ -244,15 +244,20 @@ frecuencia en cofres, no el poder. Tabla generada desde `shared/config.ts` con `
 | Black Widow | Común · Control | **Descarga**: Proyectil (6R) que apunta solo al rival más alineado: el primer rival alcanzado acelera 20 % menos durante 0,7 s. CD 8 s | **Dash evasivo**: Desplazamiento rápido (×2,2 velocidad, 0,22 s) hacia donde apuntás, chocando con todo. CD 6 s |
 | Capitán América | Raro · Defensa | **Escudo encadenado**: Escudo grande que apunta solo y rebota entre la pelota y rivales cercanos (5R): hasta 3 impactos, uno por objetivo. Nunca rebota hacia aliados. CD 9 s | **Protección de la pelota**: Pelota a menos de 10R: durante 2 s ningún poder puede modificarla (sí patadas y choques). CD 12 s |
 | Black Panther | Raro · Movilidad | **Salto felino**: Avance de hasta 4R hacia donde apuntás; se detiene ante jugadores, pelota u obstáculos. CD 8 s | **Pulso cinético**: Tras 0,3 s de aviso empuja a los rivales a 3R y un poco la pelota. CD 10 s |
-| Ibai | Raro · Defensa | **Guante de boxeo**: Golpe corto (1,5R desde tu borde) al rival más cercano delante tuyo: empujón fuerte, sin aturdir. No toca pelota ni aliados. CD 8 s | **Cuerpo gigante**: Durante 3 s: tamaño ×1,35 (también el choque), masa ×1,8 y 25 % menos aceleración. Sólo crece en el espacio libre. CD 13 s |
+| Ibai | Raro · Defensa | **Guante de boxeo**: Golpe corto (1,5R desde tu borde) al rival más cercano delante tuyo: empujón fuerte y aturdimiento de 1 s. Sólo si el golpe conecta de verdad. No toca pelota ni aliados. CD 8 s | **Cuerpo gigante**: Durante 3 s: tamaño ×1,35 (también el choque), masa ×1,8 y 25 % menos aceleración. La patada también empuja a los rivales a tu alcance (una vez por patada, 0,6 s entre golpes al mismo rival) y sigue pateando la pelota. Sólo crece en el espacio libre. CD 13 s |
 | Iron Man | Épico · Ataque | **Repulsor**: Carga 0,12 s y dispara un pulso (12R) que apunta solo: un impacto fuerte a la pelota o empuje a un rival. CD 7 s | **Misil**: Pelota a menos de 14R: marca dónde está y a los 0,65 s cae un misil (2,5R). Si la pelota sigue ahí, sale en una dirección al azar. No afecta jugadores. CD 11 s |
 | Flash | Épico · Movilidad | **Velocidad extrema**: Durante 2 s: aceleración ×2 y velocidad máxima ×1,9. CD 10 s | **Estela acelerada**: Durante 1,5 s acelerás ×1,5 y dejás una estela (1,2 s) que frena 30 % a los rivales que la pisan. No se suma con Q: vale la mejor. CD 11 s |
-| Homero | Épico · Control | **Rosquilla atrapante**: Rosquilla (10R) que apunta sola a la pelota o a un rival. Rival: no puede moverse 0,7 s (sí patear y usar poderes sin desplazamiento). Pelota: pierde 25 % de velocidad y durante 2 s patadas y poderes la impulsan 40 % menos. CD 10 s | **Charco de cerveza**: Tira una cerveza 4R adelante: charco de 3R durante 3 s donde todos (también vos) resbalan y cuesta frenar o girar. La pelota no cambia. CD 12 s |
+| Homero | Épico · Control | **Rosquilla atrapante**: Rosquilla (10R) que apunta sola a la pelota o a un rival. Rival: no puede moverse 0,7 s (sí patear y usar poderes sin desplazamiento). Pelota: pierde 25 % de velocidad, durante 2 s las patadas la impulsan 40 % menos y queda protegida 2 s: ningún poder de ningún equipo la mueve ni le aplica estados (sí patadas, choques y goles). CD 10 s | **Charco de cerveza**: Tira una cerveza 4R adelante: charco de 3R durante 3 s donde todos (también vos) resbalan y cuesta frenar o girar. La pelota no cambia. CD 12 s |
 | CJ | Épico · Ataque | **Cargador de tres balas**: 3 balas (12R) que apuntan solas, una por pulsación (mínimo 0,3 s entre balas). Pelota: impulso ×0,75 patada; rival: empujón sin aturdir. Tras la tercera, recarga 10 s. CD 10 s | **Jetpack**: Durante 2 s: aceleración +45 % y velocidad máxima +35 %. Seguís chocando con todo (el vuelo es visual). CD 12 s |
-| Verity | Épico · Ataque | **Enfado**: Durante 5 s: aceleración y velocidad +20 % y patada +30 %. CD 13 s | **TNT**: Tira una TNT (8R) que apunta sola a la pelota o a un rival; el lugar de caída queda fijo y explota 2 s después de caer: 5R que empuja pelota y a todos (también a vos). CD 13 s |
-| Thor | Legendario · Defensa | **Mjolnir electrificado**: Martillo grande (10R) que apunta solo: un impacto fuerte. Si golpea la pelota la electrifica 1,5 s: quien la toque queda aturdido 0,35 s (también vos). CD 10 s | **Rayo paralizante**: Marca al rival más cercano delante tuyo (10R); a los 0,4 s cae un rayo (1,3R) que aturde 0,55 s a los rivales que sigan ahí. Sin objetivo no gasta la recarga. CD 12 s |
+| Verity | Épico · Ataque | **Enfado**: Durante 5 s: aceleración y velocidad +20 % y patada +30 %. CD 13 s | **TNT**: Tira una TNT (8R) que apunta sola a la pelota o a un rival; el lugar de caída queda fijo y explota 2 s después de lanzarla: 5R que empuja pelota y a todos (también a vos) y aturde 1 s a los rivales. Hasta 6 TNT a la vez. CD 1 s |
+| Bendy | Épico · Control | **Mancha de tinta**: Tira un charco de tinta (2,2R) adonde va el rival más cercano (10R); sin rival, hacia donde mirás. Dura 4 s: el rival que lo pisa ve su pantalla manchada 1,5 s (una vez por charco). CD 7 s | **Forma de tinta**: Durante 3 s te volvés un charco: +60 % de velocidad y un rastro (2 s) que mancha 1 s la pantalla de los rivales que lo tocan. No podés patear ni usar Q. CD 12 s |
+| Thor | Legendario · Defensa | **Mjolnir electrificado**: Martillo grande (10R) que apunta solo: un impacto fuerte. Si golpea la pelota la electrifica 1,5 s: quien la toque queda aturdido 0,35 s (también vos). CD 10 s | **Rayo paralizante**: Marca al rival más cercano delante tuyo (10R); a los 0,4 s cae un rayo (1,9R) que aturde 0,55 s a los rivales que sigan ahí. Sin objetivo no gasta la recarga. CD 12 s |
 | Doctor Strange | Legendario · Control | **Rebobinar**: Pelota a menos de 12R: vuelve a la posición y velocidad de hace 1,5 s (sólo de esta jugada). No cambia jugadores, marcador ni reloj. CD 12 s | **Portal al arco**: Tras 0,35 s de canalización aparecés delante del arco de la mitad donde estás. Un aturdimiento lo interrumpe. CD 14 s |
-| Baldi | Legendario · Control | **Regla de detención**: Regla (12R) que apunta sola a la pelota: la deja quieta una vez, sin congelarla. No afecta jugadores. CD 9 s | **Quiz matemático**: Al rival más alineado delante tuyo (10R): tras 0,4 s recibe una cuenta (suma o resta) y no puede jugar hasta responder bien (máximo 2,5 s). Sin objetivo no gasta la recarga. CD 35 s |
+| Baldi | Legendario · Control | **Regla de detención**: Regla (19,2R) que apunta sola a la pelota: la deja quieta una vez, sin congelarla. No afecta jugadores. CD 9 s | **Quiz matemático**: Al rival más alineado delante tuyo (10R): tras 0,4 s recibe una cuenta (suma o resta) y no puede jugar hasta responder (máximo 6 s). Bien: vuelve a jugar al instante. Mal o sin responder: queda aturdido 1,5 s. Sin objetivo no gasta la recarga. CD 35 s |
+| Jeff the Land Shark | Legendario · Defensa | **Chorro de agua**: Chorro continuo de 2 s (9R, recto hacia donde mirabas al activarlo) que empuja la pelota y a los rivales. Te movés al 65 % de tu velocidad. Las paredes lo cortan. CD 8 s | **Tragar y escupir**: Traga a un rival pegado delante tuyo y lo lleva hasta 3 s (vas 20 % más lento, sin patear ni Q). E otra vez lo escupe hacia donde mirás; al terminar el tiempo lo escupe solo y queda aturdido 0,5 s. No se puede en los 3 s después de cada saque. Si falla, recarga 2 s. CD 24 s |
+| Goku | Legendario · Ataque | **Kamehameha**: Mantené Q para cargar (hasta 1,2 s, te movés al 50 %) y soltá: rayo (18R) que apunta primero a la pelota y empuja hasta ×2,2 patada, y a los rivales que atraviesa. A carga máxima la pelota queda con energía 1,5 s: el primer rival que la toca sale empujado y aturdido 0,6 s. CD 9 s | **Transmisión instantánea**: Aparecés junto a la pelota (hasta media cancha), del lado opuesto al arco rival. Tu primera patada en 1,2 s sale +75 % más fuerte y una onda aparta a los rivales cercanos (no la pelota). Sin lugar libre no gasta la recarga. CD 12 s |
+
+**Pasiva de Goku · Instinto de combate**: Cada patada a la pelota da una carga de ki (máximo una por segundo; los poderes no cuentan). Con 5 cargas la próxima Q o E se potencia: Q carga en la mitad de tiempo y empuja +30 %; E te da una segunda transmisión gratis durante 3 s. El ki se reinicia con cada gol.
 
 **Thanos** (secreto, en todos los modos para quien lo tenga asignado). Q: Activa la gema seleccionada (teclas 1–5 para elegir). E: Pasa a la siguiente gema.
 
@@ -347,6 +352,16 @@ dibuja radios, alcance de patada y posiciones de red.
 
 ## Cambios (ordenados por importancia)
 
+0. **Bendy, Jeff the Land Shark y Goku + ajustes de balance** (composición de cofres versión 3: Bendy épico, Jeff y
+   Goku legendarios; probabilidades y garantías por rareza sin cambios). Bendy mancha la pantalla de los rivales (sólo
+   la ve el afectado, con tope de 2,5 s seguidos y 1 s de inmunidad); Jeff tira un chorro continuo y traga/escupe a un
+   rival (bloqueado en los 3 s posteriores a cada saque; el tragado sale siempre en un lugar válido al haber gol,
+   reinicio, salida o cambio de equipo); Goku carga el Kamehameha manteniendo Q, se teletransporta detrás de la pelota
+   y tiene la pasiva de ki (en Súper, Super Saiyajin con aura dorada). Balance: el guante de Ibai aturde 1 s y, gigante,
+   su patada aparta rivales (0,6 s entre impactos al mismo rival); la rosquilla de Homero protege la pelota hasta 2 s
+   de todos los poderes; la TNT de Verity recarga en 1 s, explota a los 2 s del lanzamiento, aturde 1 s y admite 6
+   activas; el rayo de Thor tiene +50 % de radio; la regla de Baldi +60 % de alcance y el quiz dura hasta 6 s: errar o
+   no responder aturde 1,5 s.
 0. **Seis personajes nuevos**: Homero, CJ, Baldi, Ibai y Verity (en cofres, composición versión 2) y Thanos
    (secreto, asignado por administración, en todos los modos para quien lo tenga); autoapuntado compartido
    para todos los poderes que se lanzan, controles incapacitantes con tope de 1 s e inmunidad, retratos propios.
@@ -420,6 +435,12 @@ respuesta que se confirma con la misma clave.
 - El límite de intentos de inicio de sesión es en memoria (un solo proceso). Con varias instancias haría falta un
   almacenamiento compartido.
 - Salas en memoria: se pierden al reiniciar el servidor (las cuentas y la economía no).
+
+- **Retratos de Bendy, Jeff y Goku**: son marcadores provisionales (disco con la inicial y anillo punteado). Se
+  buscaron imágenes con licencia reutilizable y sólo aparecieron fotos de cosplay, figuras y logos; los personajes
+  tienen derechos de sus dueños (Joey Drew Studios, Marvel, Bird Studio/Shueisha/Toei), así que no se descargó
+  ninguna. Para poner retratos reales, copiar PNG 256×256 en `client/public/heroes/` (`bendy.png`, `jeff.png`,
+  `goku.png`, `goku-super.png`) y agregarlos a `PORTRAIT_FILE` en `client/src/game/heroArt.ts`.
 
 ## Licencia
 

@@ -43,10 +43,10 @@ function cast(s: GameState, id: string, slot: 'q' | 'e', n = 1) {
 }
 
 describe('catálogo', () => {
-  it('18 héroes: 4 iniciales gratis, 13 desbloqueables con la rareza pedida y 1 secreto', () => {
-    expect(HERO_IDS).toHaveLength(18);
+  it('21 héroes: 4 iniciales gratis, 16 desbloqueables con la rareza pedida y 1 secreto', () => {
+    expect(HERO_IDS).toHaveLength(21);
     expect(SECRET_IDS).toEqual(['thanos']);
-    expect(PUBLIC_HERO_IDS).toHaveLength(17);
+    expect(PUBLIC_HERO_IDS).toHaveLength(20);
     expect(PUBLIC_HERO_IDS).not.toContain('thanos');
     const starters = HERO_IDS.filter((h) => HERO_CATALOG[h].starter);
     expect(starters).toEqual(['spider', 'batman', 'hulk', 'superman']);
@@ -56,6 +56,7 @@ describe('catálogo', () => {
     expect([r('ironman'), r('flash')]).toEqual(['epic', 'epic']);
     expect([r('thor'), r('strange')]).toEqual(['legendary', 'legendary']);
     expect([r('ibai'), r('homer'), r('cj'), r('verity'), r('baldi')]).toEqual(['rare', 'epic', 'epic', 'epic', 'legendary']);
+    expect([r('bendy'), r('jeff'), r('goku')]).toEqual(['epic', 'legendary', 'legendary']);
     expect(HEROES.thanos.gems).toHaveLength(5);
     for (const h of HERO_IDS) {
       expect(HEROES[h].q.desc.length).toBeGreaterThan(10);

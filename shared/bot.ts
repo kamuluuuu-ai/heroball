@@ -2,7 +2,8 @@
 // no toca la física directamente.
 import { R, STADIUM, powersFor } from './config';
 import { hasPowers, teamDir } from './game';
-import { ballGuarded, boltTarget, gloveTarget, quizTarget } from './powers';
+import { ballGuarded, blinkSpot, boltTarget, gloveTarget, kameAim, kameMaxCharge, quizTarget, swallowLocked, swallowTarget } from './powers';
+
 import { GameState, IN, IN_NUM_SHIFT, inNum, PlayerState } from './types';
 
 export interface BotBrain {
@@ -65,6 +66,11 @@ function quizBits(me: PlayerState, brain: BotBrain, rnd: () => number): number {
 export function botInput(s: GameState, brain: BotBrain, rnd: () => number = Math.random): number {
   const me = s.players.find((p) => p.id === brain.id);
   if (!me) return 0;
+  // tragado por Jeff: no hay nada que hacer hasta salir
+  if (me.eatenBy) {
+    brain.lastBits = 0;
+    return 0;
+  }
   if (me.quiz) {
     brain.lastBits = quizBits(me, brain, rnd);
     return brain.lastBits;
@@ -227,6 +233,29 @@ export function botInput(s: GameState, brain: BotBrain, rnd: () => number = Math
         else if (useE(near !== null && near.d < P.verity.tnt.range * 0.8 && near.align > 0.6)) bits |= IN.E;
         break;
       }
+      case 'bendy': {
+        const near = nearestRival(s, me);
+        // mancha al rival cercano; forma de tinta para cruzar entre rivales sin patear
+        if (useQ(me.inkForm === 0 && near !== null && near.d < P.bendy.puddle.range * 0.9)) bits |= IN.Q;
+        else if (useE(!isAttacker && near !== null && near.d < 5 * R)) bits |= IN.E;
+        break;
+      }
+      case 'jeff': {
+        const near = nearestRival(s, me);
+        if (me.holding) {
+          // escupe cuando mira hacia el arco rival (o casi se acaba el tiempo, que lo hace solo)
+          if (me.ax * dir > 0.5 && rnd() < 0.08 && !(brain.lastBits & IN.E)) bits |= IN.E;
+        } else if (useQ(!guarded && d < P.jeff.water.range * 0.8 && facing > 0.9 && towardGoal)) bits |= IN.Q;
+        else if (useE(near !== null && swallowTarget(s, me) !== null && !swallowLocked(s))) bits |= IN.E;
+        break;
+      }
+      case 'goku':
+        if (me.charge > 0) {
+          // mantiene Q hasta una carga alta y suelta
+          if (me.charge < kameMaxCharge(s, me) * (0.6 + brain.skill * 0.4)) bits |= IN.Q;
+        } else if (useQ(!guarded && d < P.goku.kame.range * 0.8 && towardGoal && kameAim(s, me).target?.kind === 'ball')) bits |= IN.Q;
+        else if ((me.freeBlink > 0 || useE(true)) && d > 10 * R && blinkSpot(s, me) !== null && !(brain.lastBits & IN.E)) bits |= IN.E;
+        break;
     }
   }
   brain.lastBits = bits;

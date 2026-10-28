@@ -10,8 +10,8 @@ import { AIM, COLORS, GEM_COLOR, GEM_IDS, KICK, STADIUM, TICK_RATE, powersFor } 
 import { stadium, type Seg } from '../../../shared/physics';
 import type { GameEvent, GameState, PlayerState, Projectile, Team, Zone } from '../../../shared/types';
 import { IN } from '../../../shared/types';
-import { drawGemIcon, drawHero } from './heroArt';
-import { autoAim, boltTarget, gloveTarget, grappleAim, quizTarget } from '../../../shared/powers';
+import { drawGemIcon, drawHero, inkBlot } from './heroArt';
+import { autoAim, blinkSpot, boltTarget, gloveTarget, grappleAim, kameAim, kameMaxCharge, kiReady, puddleSpot, quizTarget, swallowTarget } from '../../../shared/powers';
 
 interface Fx {
   kind: 'ring' | 'spark' | 'wave' | 'line' | 'mark';
@@ -210,6 +210,21 @@ export class Renderer {
             this.banner = { lines: ['¡Era una ilusión!', 'Gema de la Realidad'], color: GEM_COLOR.reality, t0: now, dur: 1800 };
           }
           break;
+        case 'swallow':
+          if (s) {
+            const j = s.players.find((o) => o.id === e.by);
+            const at = j ?? s.players.find((o) => o.id === e.id);
+            if (at) this.push({ kind: 'ring', x: at.d.x, y: at.d.y, r: at.d.r + 10, color: e.result === 'in' ? '#2F7FC1' : '#9fd1ff', dur: 340 }, true);
+          }
+          break;
+        case 'ki':
+          if (s) {
+            const p = s.players.find((o) => o.id === e.id);
+            if (p) this.push({ kind: 'ring', x: p.d.x, y: p.d.y, r: p.d.r + 6, color: '#FFD54F', dur: 240 });
+          }
+          break;
+        case 'ink':
+          break;
       }
     }
   }
@@ -324,7 +339,8 @@ export class Renderer {
       }
     }
 
-    for (const p of s.players) this.drawPlayer(c, s, p, p.id === localId, o);
+    // los tragados se dibujan dentro de Jeff (drawPlayer de Jeff)
+    for (const p of s.players) if (!p.eatenBy) this.drawPlayer(c, s, p, p.id === localId, o);
     this.drawAimReticle(c, s, localId);
     this.drawPosts(c);
     // Gema de la Realidad: el equipo engañado ve la pelota falsa en lugar de la real (la física no cambia)
@@ -338,6 +354,8 @@ export class Renderer {
 
     // textos de pantalla
     c.setTransform(1, 0, 0, 1, 0, 0);
+    // tinta de Bendy: sólo en la pantalla del jugador afectado (la cancha, nunca los botones ni la salida)
+    if (me && me.ink > 0 && s.mode !== 'classic') this.drawInkScreen(c, W, H - inset, me.ink, me.inkSeed);
     this.drawBanner(c, W, H, s);
     if (dbg) this.drawDebugLegend(c, s, localId, dbg);
   }
@@ -390,6 +408,47 @@ export class Renderer {
       c.lineWidth = px;
       c.stroke();
     }
+  }
+
+  /**
+   * Mancha de tinta en la pantalla: salpicaduras negras que tapan gran parte de
+   * la cancha. Se desvanece al final; nunca queda permanente (la simulación
+   * limita la secuencia). Va dibujada en el canvas: los botones del HUD, el
+   * menú y los controles táctiles quedan siempre por encima.
+   */
+  private drawInkScreen(c: CanvasRenderingContext2D, W: number, H: number, ticks: number, seed: number): void {
+    const fade = Math.min(1, ticks / 18);
+    c.save();
+    c.globalAlpha = 0.93 * fade;
+    c.fillStyle = '#0b0b0d';
+    const rnd = (i: number) => {
+      const v = Math.sin(seed * 12.9898 + i * 78.233) * 43758.5453;
+      return v - Math.floor(v);
+    };
+    const m = Math.min(W, H);
+    // manchas grandes que cubren el centro y salpicaduras alrededor
+    const blobs: [number, number, number][] = [
+      [0.5, 0.5, 0.42], [0.3, 0.38, 0.3], [0.7, 0.62, 0.3], [0.33, 0.7, 0.24], [0.68, 0.32, 0.24],
+    ];
+    blobs.forEach(([bx, by, br], i) => {
+      const x = W * (bx + (rnd(i) - 0.5) * 0.12);
+      const y = H * (by + (rnd(i + 9) - 0.5) * 0.12);
+      inkBlot(c, x, y, m * br, 6 + (i % 3), seed + i);
+      c.fill();
+    });
+    for (let i = 0; i < 14; i++) {
+      const x = W * (0.08 + rnd(i + 20) * 0.84);
+      const y = H * (0.1 + rnd(i + 40) * 0.8);
+      c.beginPath();
+      c.arc(x, y, m * (0.012 + rnd(i + 60) * 0.03), 0, Math.PI * 2);
+      c.fill();
+    }
+    // brillo de tinta húmeda
+    c.globalAlpha = 0.18 * fade;
+    c.fillStyle = '#4a4a55';
+    inkBlot(c, W * 0.46, H * 0.44, m * 0.12, 5, seed + 3);
+    c.fill();
+    c.restore();
   }
 
   private drawDebugLegend(c: CanvasRenderingContext2D, s: GameState, localId: string, dbg: DebugLayers): void {
@@ -956,6 +1015,46 @@ export class Renderer {
         this.progress(c, s.ball.x, s.ball.y, s.ball.r + 14, k, GEM_COLOR.space, 2.5);
         break;
       }
+      case 'ink': {
+        // charco de tinta con su radio real; mientras vuela, el contorno donde cae
+        const P2 = P.bendy.puddle;
+        const fade = Math.min(1, z.ticks / 20);
+        c.globalAlpha = fade;
+        if (z.delay > 0) {
+          c.beginPath();
+          c.arc(z.x, z.y, z.r, 0, Math.PI * 2);
+          c.setLineDash([5, 4]);
+          c.lineWidth = 1.5;
+          c.strokeStyle = 'rgba(20,20,24,0.9)';
+          c.stroke();
+          c.setLineDash([]);
+          this.progress(c, z.x, z.y, z.r + 4, 1 - z.delay / Math.max(1, P2.flightTicks), 'rgba(20,20,24,0.9)', 2);
+          break;
+        }
+        c.beginPath();
+        c.arc(z.x, z.y, z.r, 0, Math.PI * 2);
+        c.fillStyle = 'rgba(12,12,16,0.62)';
+        c.fill();
+        c.lineWidth = 1.5;
+        c.strokeStyle = 'rgba(0,0,0,0.85)';
+        c.stroke();
+        c.fillStyle = 'rgba(12,12,16,0.55)';
+        inkBlot(c, z.x, z.y, z.r * 0.75, 6, z.id);
+        c.fill();
+        break;
+      }
+      case 'inkTrail': {
+        // rastro de la forma de tinta: gotas negras con su radio real que se secan
+        const life = P.bendy.form.segTicks;
+        for (const q of z.pts) {
+          const a = Math.max(0, 1 - (s.tick - q.t) / life);
+          c.beginPath();
+          c.arc(q.x, q.y, z.r, 0, Math.PI * 2);
+          c.fillStyle = `rgba(12,12,16,${0.12 + 0.4 * a})`;
+          c.fill();
+        }
+        break;
+      }
       case 'timeGhost': {
         // recorrido fantasma verde que se desvanece
         if (z.pts.length < 2) break;
@@ -1170,6 +1269,51 @@ export class Renderer {
         c.stroke();
         break;
       }
+      case 'water': {
+        // chorro: franja azul con el ancho real; la punta se corta en paredes y postes
+        const ex = z.x + z.dx * z.len;
+        const ey = z.y + z.dy * z.len;
+        c.lineCap = 'round';
+        c.strokeStyle = 'rgba(80,170,255,0.45)';
+        c.lineWidth = z.r * 2;
+        c.beginPath();
+        c.moveTo(z.x, z.y);
+        c.lineTo(ex, ey);
+        c.stroke();
+        c.strokeStyle = 'rgba(210,240,255,0.8)';
+        c.lineWidth = Math.max(1.5, z.r * 0.5);
+        if (!this.reduced) {
+          c.setLineDash([8, 6]);
+          c.lineDashOffset = -now / 20;
+        }
+        c.stroke();
+        c.setLineDash([]);
+        c.lineCap = 'butt';
+        break;
+      }
+      case 'kame': {
+        // Kamehameha: haz azul con el ancho real (más grueso cuanto más cargado) y destello
+        const ex = z.x + z.dx * z.len;
+        const ey = z.y + z.dy * z.len;
+        const fade = Math.min(1, z.ticks / 8);
+        c.globalAlpha = fade;
+        c.lineCap = 'round';
+        c.strokeStyle = 'rgba(60,150,255,0.75)';
+        c.lineWidth = z.r * 2;
+        c.beginPath();
+        c.moveTo(z.x, z.y);
+        c.lineTo(ex, ey);
+        c.stroke();
+        c.strokeStyle = 'rgba(235,250,255,0.95)';
+        c.lineWidth = Math.max(2, z.r * 0.8);
+        c.stroke();
+        c.lineCap = 'butt';
+        c.beginPath();
+        c.arc(ex, ey, z.r * 1.5, 0, Math.PI * 2);
+        c.fillStyle = 'rgba(120,200,255,0.6)';
+        c.fill();
+        break;
+      }
       case 'mind': {
         // Gema de la Mente: lazo amarillo de Thanos al controlado
         const owner = s.players.find((o) => o.id === z.owner);
@@ -1235,6 +1379,15 @@ export class Renderer {
       c.beginPath();
       c.arc(b.x, b.y, b.r + 5.5, 0, Math.PI * 2);
       c.stroke();
+    }
+    if (s.ballKi > 0) {
+      // energía del Kamehameha: halo azul (el primer rival que la toca sale despedido)
+      c.beginPath();
+      c.arc(b.x, b.y, b.r + 4 + (this.reduced ? 0 : Math.sin(now / 60)), 0, Math.PI * 2);
+      c.lineWidth = 3;
+      c.strokeStyle = 'rgba(80,170,255,0.9)';
+      c.stroke();
+      this.progress(c, b.x, b.y, b.r + 8, s.ballKi / Math.max(1, powersFor(s.mode).goku.kame.energyTicks), 'rgba(160,220,255,0.95)', 1.5);
     }
     if (s.ballElec > 0) {
       // electricidad de Mjolnir: arcos decorativos (sólo el contacto físico aturde)
@@ -1358,6 +1511,53 @@ export class Renderer {
       c.lineWidth = 3;
       c.stroke();
     }
+    if (p.hero === 'goku' && s.mode === 'super') {
+      // Super Saiyajin: aura dorada y estelas al moverse
+      c.beginPath();
+      c.arc(x, y, r + 5 + (this.reduced ? 0 : Math.sin(t / 90) * 1.2), 0, Math.PI * 2);
+      c.fillStyle = 'rgba(255,215,64,0.18)';
+      c.fill();
+      c.strokeStyle = 'rgba(255,215,64,0.85)';
+      c.lineWidth = 2;
+      c.stroke();
+      if (Math.hypot(p.d.vx, p.d.vy) > 1 && !this.reduced) {
+        c.strokeStyle = 'rgba(255,225,90,0.6)';
+        c.lineWidth = 2;
+        for (const off of [-0.5, 0.5]) {
+          c.beginPath();
+          c.moveTo(x + bx * r - by * off * r, y + by * r + bx * off * r);
+          c.lineTo(x + bx * r * 2.6 - by * off * r, y + by * r * 2.6 + bx * off * r);
+          c.stroke();
+        }
+      }
+    }
+    if (p.blinkKick > 0 || p.freeBlink > 0) {
+      // Transmisión: patada potenciada pendiente (naranja) o segunda transmisión gratis (punteado dorado)
+      c.beginPath();
+      c.arc(x, y, r + 6, 0, Math.PI * 2);
+      if (p.freeBlink > 0) c.setLineDash([4, 3]);
+      c.strokeStyle = p.freeBlink > 0 ? 'rgba(255,215,64,0.95)' : 'rgba(255,140,40,0.95)';
+      c.lineWidth = 2.5;
+      c.stroke();
+      c.setLineDash([]);
+    }
+    if (p.charge > 0) {
+      // Kamehameha cargando: esfera azul delante y la dirección en la que saldrá (todos la ven)
+      const aim = kameAim(s, p);
+      const k = Math.min(1, p.charge / kameMaxCharge(s, p));
+      c.setLineDash([6, 5]);
+      c.strokeStyle = `rgba(90,180,255,${0.35 + 0.5 * k})`;
+      c.lineWidth = 1.5;
+      c.beginPath();
+      c.moveTo(x + aim.dx * r, y + aim.dy * r);
+      c.lineTo(x + aim.dx * (r + powersFor(s.mode).goku.kame.range), y + aim.dy * (r + powersFor(s.mode).goku.kame.range));
+      c.stroke();
+      c.setLineDash([]);
+      c.beginPath();
+      c.arc(x + aim.dx * (r + 4), y + aim.dy * (r + 4), 3 + 6 * k, 0, Math.PI * 2);
+      c.fillStyle = k >= 1 ? 'rgba(220,245,255,0.95)' : 'rgba(110,190,255,0.85)';
+      c.fill();
+    }
     if (p.powerKick > 0) {
       // Gema del Poder: la próxima patada pega fuerte
       c.beginPath();
@@ -1384,6 +1584,20 @@ export class Renderer {
       c.setLineDash([]);
     }
 
+    if (p.inkForm > 0 && s.mode !== 'classic') {
+      // forma de tinta: Bendy es un charco que se mueve (el anillo del equipo sigue visible)
+      c.save();
+      c.translate(x, y);
+      c.fillStyle = '#0d0d10';
+      inkBlot(c, 0, 0, r * 1.05, 7, Math.floor(this.reduced ? 0 : t / 160));
+      c.fill();
+      c.lineWidth = 2.5;
+      c.strokeStyle = team;
+      c.stroke();
+      c.restore();
+      this.drawNames(c, p, local, o);
+      return;
+    }
     c.beginPath();
     c.arc(x, y, r, 0, Math.PI * 2);
     c.fillStyle = team;
@@ -1392,7 +1606,7 @@ export class Renderer {
       // emblema dentro de un anillo del color del equipo
       c.save();
       c.translate(x, y);
-      drawHero(c, p.hero, r - 5, { angry: p.anger > 0 });
+      drawHero(c, p.hero, r - 5, { angry: p.anger > 0, superForm: s.mode === 'super' });
       c.restore();
     }
     c.beginPath();
@@ -1401,6 +1615,27 @@ export class Renderer {
     c.strokeStyle = p.input & IN.KICK && p.stun === 0 ? '#fff' : '#000';
     c.stroke();
     if (p.hero === 'thanos' && s.mode !== 'classic') this.drawGauntlet(c, s, p);
+    if (p.hero === 'goku' && s.mode !== 'classic') this.drawKi(c, s, p);
+    if (p.holding) {
+      // Jeff con alguien adentro: el tragado se ve en la panza, con el tiempo que le queda
+      const v = s.players.find((q) => q.id === p.holding);
+      if (v) {
+        c.save();
+        c.translate(x - p.ax * r * 0.35, y - p.ay * r * 0.35);
+        c.beginPath();
+        c.arc(0, 0, r * 0.55, 0, Math.PI * 2);
+        c.fillStyle = TEAM_COLOR[v.team];
+        c.fill();
+        drawHero(c, v.hero, r * 0.45, { superForm: s.mode === 'super' });
+        c.lineWidth = 1.5;
+        c.strokeStyle = '#fff';
+        c.beginPath();
+        c.arc(0, 0, r * 0.55, 0, Math.PI * 2);
+        c.stroke();
+        c.restore();
+        this.progress(c, x, y, r + 6, p.holdTicks / Math.max(1, powersFor(s.mode).jeff.swallow.holdTicks), 'rgba(80,170,255,0.95)', 2.5);
+      }
+    }
 
     if (p.trap > 0) {
       // atrapado por la dona: aro glaseado alrededor
@@ -1487,18 +1722,40 @@ export class Renderer {
       c.restore();
     }
 
-    if (o.showNames) {
-      const name = o.names.get(p.id) ?? '';
-      if (name) {
-        c.font = '600 10px "Open Sans", Arial, sans-serif';
-        c.textAlign = 'center';
-        c.textBaseline = 'top';
-        c.lineWidth = 3;
-        c.strokeStyle = 'rgba(0,0,0,0.6)';
-        c.strokeText(name, x, y + r + 4);
-        c.fillStyle = local ? '#fff' : 'rgba(255,255,255,0.9)';
-        c.fillText(name, x, y + r + 4);
-      }
+    this.drawNames(c, p, local, o);
+  }
+
+  private drawNames(c: CanvasRenderingContext2D, p: PlayerState, local: boolean, o: RenderOptions): void {
+    if (!o.showNames) return;
+    const name = o.names.get(p.id) ?? '';
+    if (!name) return;
+    const { x, y, r } = p.d;
+    c.font = '600 10px "Open Sans", Arial, sans-serif';
+    c.textAlign = 'center';
+    c.textBaseline = 'top';
+    c.lineWidth = 3;
+    c.strokeStyle = 'rgba(0,0,0,0.6)';
+    c.strokeText(name, x, y + r + 4);
+    c.fillStyle = local ? '#fff' : 'rgba(255,255,255,0.9)';
+    c.fillText(name, x, y + r + 4);
+  }
+
+  /** Ki de Goku: puntos sobre el disco (dorados = cargados); con la barra llena, un anillo. */
+  private drawKi(c: CanvasRenderingContext2D, s: GameState, p: PlayerState): void {
+    const max = powersFor(s.mode).goku.ki.max;
+    const { x, y, r } = p.d;
+    for (let i = 0; i < max; i++) {
+      c.beginPath();
+      c.arc(x + (i - (max - 1) / 2) * 5, y - r - 6, 1.8, 0, Math.PI * 2);
+      c.fillStyle = i < p.ki ? '#FFD54F' : 'rgba(255,255,255,0.35)';
+      c.fill();
+    }
+    if (kiReady(s, p)) {
+      c.beginPath();
+      c.arc(x, y, r + 3, 0, Math.PI * 2);
+      c.strokeStyle = 'rgba(255,213,79,0.9)';
+      c.lineWidth = 1.5;
+      c.stroke();
     }
   }
 
@@ -1570,8 +1827,40 @@ export class Renderer {
       const t = gloveTarget(s, me);
       if (t) tri(t.d.x, t.d.y - t.d.r - 9, 'rgba(214,40,40,0.95)');
     }
+    // Jeff: rival que tragaría; Bendy: dónde caería la mancha; Goku: lugar de la transmisión y objetivo del Kamehameha
+    if (me.hero === 'jeff' && me.cdE === 0 && !me.holding) {
+      const t = swallowTarget(s, me);
+      if (t) tri(t.d.x, t.d.y - t.d.r - 9, 'rgba(47,127,193,0.95)');
+    }
+    if (me.hero === 'bendy' && me.cdQ === 0 && me.inkForm === 0) {
+      const [px, py] = puddleSpot(s, me);
+      c.beginPath();
+      c.arc(px, py, P.bendy.puddle.radius, 0, Math.PI * 2);
+      c.setLineDash([3, 6]);
+      c.strokeStyle = 'rgba(15,15,20,0.6)';
+      c.lineWidth = 1.5;
+      c.stroke();
+      c.setLineDash([]);
+    }
+    if (me.hero === 'goku' && (me.cdE === 0 || me.freeBlink > 0) && !fooled) {
+      const sp = blinkSpot(s, me);
+      if (sp) {
+        c.beginPath();
+        c.arc(sp[0], sp[1], me.d.r, 0, Math.PI * 2);
+        c.setLineDash([3, 4]);
+        c.strokeStyle = 'rgba(255,215,64,0.55)';
+        c.lineWidth = 1.5;
+        c.stroke();
+        c.setLineDash([]);
+      }
+    }
+    if (me.hero === 'goku' && me.cdQ === 0 && me.charge === 0) {
+      const a = kameAim(s, me);
+      if (a.target && !(fooled && a.target.kind === 'ball')) tri(a.target.x, a.target.y - (a.target.kind === 'ball' ? s.ball.r : me.d.r) - 9, 'rgba(90,180,255,0.95)');
+    }
     // Verity: dónde caería la TNT
     if (me.hero === 'verity' && me.cdE === 0) {
+
       const a = autoAim(s, me, 'e');
       const c2 = P.verity.tnt;
       let tx = a && !(fooled && a.target.kind === 'ball') ? a.x : me.d.x + me.ax * c2.range;

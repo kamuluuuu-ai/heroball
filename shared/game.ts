@@ -1,8 +1,8 @@
 // Reglas del partido: saque, goles, tiempo, gol de oro, patadas y entradas.
-import { HeroId, KICK, LIMITS, PLAYER, RULES, STADIUM, TICK_RATE, powersFor } from './config';
+import { HeroId, KICK, LIMITS, PLAYER, RULES, STADIUM, STUN, TICK_RATE, powersFor } from './config';
 import { clampSpeed, makeDisc, Seg, stadium, stepWorld } from './physics';
 import { GEM_IDS, POWERS } from './config';
-import { accelMult, activate, applyDash, applyRush, ballImpulseFactor, clearEffects, controlling, incapacitated, kickMult, playerInvMass, powerKickMult, quizInput, speedLimitMult, updatePowers } from './powers';
+import { accelMult, activate, applyDash, applyRush, ballImpulseFactor, canKick, chargeInput, clearEffects, controlling, gainKi, giantKick, incapacitated, inPlay, kickMult, playerInvMass, powerKickMult, quizInput, releaseVictim, speedLimitMult, updatePowers } from './powers';
 import { GameMode, GameState, IN, INPUT_MASK, inNum, PlayerState, Team } from './types';
 
 export interface GameOptions {
@@ -56,6 +56,9 @@ export function createGame(o: GameOptions): GameState {
     plHist: {},
     illusion: null,
     illusionGap: 0,
+    liveTicks: 0,
+    ballKi: 0,
+    ballKiBy: null,
   };
   for (const p of o.players) addPlayer(s, p.id, p.team, p.hero);
   resetKickoff(s, 'red');
@@ -81,6 +84,12 @@ function newPlayer(id: string, team: Team, hero: HeroId): PlayerState {
     evade: 0, evadeResist: 0, sprint: 0, trailBoost: 0,
     half: team === 'red' ? -1 : 1,
     warp: 0,
+    incapCap: STUN.maxTicks,
+    kickHits: {},
+    ink: 0, inkRun: 0, inkImmune: 0, inkSeed: 0, inkForm: 0,
+    spray: 0, sprayDx: 0, sprayDy: 0,
+    holding: null, holdTicks: 0, eatenBy: null,
+    charge: 0, chargeKi: false, ki: 0, kiGap: 0, blinkKick: 0, freeBlink: 0,
   };
 }
 
@@ -104,6 +113,15 @@ export function addPlayer(s: GameState, id: string, team: Team, hero: HeroId): P
 }
 
 export function removePlayer(s: GameState, id: string): void {
+  // Jeff se va (o cambia de equipo): su tragado sale en un lugar válido; si se va el tragado, Jeff queda libre
+  const gone = s.players.find((p) => p.id === id);
+  for (const o of s.players) {
+    if (o.eatenBy === id) releaseVictim(s, o, gone ?? null, false);
+    if (o.holding === id) {
+      o.holding = null;
+      o.holdTicks = 0;
+    }
+  }
   s.players = s.players.filter((p) => p.id !== id);
   s.projectiles = s.projectiles.filter((p) => p.owner !== id);
   s.tethers = s.tethers.filter((t) => t.owner !== id && t.target !== id);
@@ -140,6 +158,7 @@ export function requestHero(s: GameState, id: string, hero: HeroId): void {
 export function resetKickoff(s: GameState, team: Team): void {
   s.phase = 'kickoff';
   s.phaseTicks = 0;
+  s.liveTicks = 0;
   s.kickoffTeam = team;
   s.ball = makeDisc(0, 0, 'ball');
   s.ballWarp++;
@@ -188,7 +207,20 @@ function kickoffBarriers(s: GameState): Seg[] {
 }
 
 function updatePlayer(s: GameState, p: PlayerState): void {
-  // quiz abierto: el número de la entrada es la respuesta
+  // tragado por Jeff: no se mueve ni actúa; va adentro de Jeff (fuera de la física)
+  if (p.eatenBy) {
+    const j = s.players.find((o) => o.id === p.eatenBy);
+    if (j) {
+      p.d.x = j.d.x;
+      p.d.y = j.d.y;
+      p.d.vx = j.d.vx;
+      p.d.vy = j.d.vy;
+    }
+    p.kickArmed = false;
+    p.prevInput = p.input;
+    return;
+  }
+  // quiz abierto: el número de la entrada es la respuesta (y no activa nada más)
   if (p.quiz && powersEnabled(s)) quizInput(s, p);
   // aturdido, controlado o con quiz: sin movimiento voluntario, patada ni
   // poderes (las entradas se siguen registrando, así una tecla mantenida no se
@@ -236,9 +268,10 @@ function updatePlayer(s: GameState, p: PlayerState): void {
     p.ay = dy;
   }
 
-  // poderes (flanco de subida: mantener apretado no reactiva)
+  // poderes (flanco de subida: mantener apretado no reactiva). Kamehameha: mantener carga, soltar dispara.
   if (powersEnabled(s)) {
-    if (pressed & IN.Q) activate(s, p, 'q');
+    if (p.charge > 0) chargeInput(s, p, (bits & IN.Q) !== 0);
+    else if (pressed & IN.Q) activate(s, p, 'q');
     if (pressed & IN.E) activate(s, p, 'e');
   }
 
@@ -265,17 +298,31 @@ function updatePlayer(s: GameState, p: PlayerState): void {
 
 function tryKick(s: GameState, p: PlayerState): void {
   if (!p.kickArmed || p.kickCd > 0) return;
+  const powers = hasPowers(s);
+  // forma de tinta, Jeff con alguien adentro o tragado: no se patea
+  if (powers && !canKick(p)) return;
+  // Ibai gigante: la misma patada empuja a los rivales a su alcance (y sigue sirviendo para la pelota)
+  const rivals = powers && p.giant > 0 && s.phase !== 'ended' ? giantKick(s, p) : 0;
   const b = s.ball;
   const dx = b.x - p.d.x;
   const dy = b.y - p.d.y;
   const dist = Math.hypot(dx, dy);
-  if (dist === 0 || dist - b.r - p.d.r >= KICK.range) return;
+  if (dist === 0 || dist - b.r - p.d.r >= KICK.range) {
+    if (rivals > 0) {
+      p.kickArmed = false;
+      p.kickCd = KICK.rateTicks;
+    }
+    return;
+  }
   const nx = dx / dist;
   const ny = dy / dist;
   // Gema del Poder: la próxima patada (la protección del Capitán anula el extra);
   // la rosquilla en la pelota reduce el impulso
-  const m = hasPowers(s) ? kickMult(s, p) * powerKickMult(s, p) * ballImpulseFactor(s) : 1;
+  const m = powers ? kickMult(s, p) * powerKickMult(s, p) * ballImpulseFactor(s) : 1;
   if (p.powerKick > 0) p.powerKick = 0;
+  if (p.blinkKick > 0) p.blinkKick = 0;
+  // Goku: cada patada conectada con la pelota da ki (los poderes no)
+  if (powers) gainKi(s, p);
   const k = PLAYER.kickStrength * m;
   b.vx += nx * k * b.invMass;
   b.vy += ny * k * b.invMass;
@@ -334,7 +381,8 @@ export function step(s: GameState): void {
 
   const bx = s.ball.x;
   const by = s.ball.y;
-  stepWorld({ ball: s.ball, players: s.players.map((p) => p.d), playerBarriers: kickoffBarriers(s) });
+  // los tragados no chocan con nada
+  stepWorld({ ball: s.ball, players: s.players.filter(inPlay).map((p) => p.d), playerBarriers: kickoffBarriers(s) });
   clampSpeed(s.ball, LIMITS.ballMaxSpeed);
   for (const p of s.players) clampSpeed(p.d, LIMITS.playerMaxSpeed);
   if (hasPowers(s)) updatePowers(s);
@@ -345,6 +393,8 @@ export function step(s: GameState): void {
       break;
     case 'playing': {
       s.time++;
+      s.liveTicks++;
+
       const scorer = goalCrossed(bx, by, s.ball.x, s.ball.y);
       if (scorer) {
         s.score[scorer]++;

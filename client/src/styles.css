@@ -154,7 +154,7 @@ canvas.field { position: absolute; inset: 0; width: 100%; height: 100%; display:
   gap: 6px;
   pointer-events: none;
 }
-.pslot { display: flex; flex-direction: column; align-items: center; gap: 1px; width: 76px; }
+.pslot { display: flex; flex-direction: column; align-items: center; gap: 1px; width: 96px; }
 .pslot .pbox {
   position: relative;
   width: 44px;
@@ -165,16 +165,16 @@ canvas.field { position: absolute; inset: 0; width: 100%; height: 100%; display:
   overflow: hidden;
 }
 .pslot .plabel, .pslot .pstate {
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.15;
-  max-width: 76px;
+  max-width: 96px;
   text-align: center;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   text-shadow: 0 1px 2px #000, 0 0 2px #000;
 }
-.pslot .pstate { font-size: 10px; color: #cfd6da; }
+.pslot .pstate { font-size: 11px; color: #cfd6da; }
 .pslot.ready .pstate { color: #9be36b; }
 .pslot.active .pstate { color: #ffd23f; font-weight: 700; }
 .pslot.blocked .pstate { color: #ffb3a3; }
@@ -192,7 +192,7 @@ canvas.field { position: absolute; inset: 0; width: 100%; height: 100%; display:
 .gembar {
   position: absolute;
   left: 50%;
-  bottom: 92px;
+  bottom: 100px;
   transform: translateX(-50%);
   display: flex;
   gap: 4px;
@@ -202,13 +202,13 @@ canvas.field { position: absolute; inset: 0; width: 100%; height: 100%; display:
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: 64px;
+  width: 76px;
   padding: 3px 2px;
   background: rgba(17, 22, 25, 0.82);
   border: 2px solid #3c4a52;
   border-radius: 6px;
   color: #fff;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.15;
   touch-action: none;
 }
@@ -257,9 +257,14 @@ canvas.field { position: absolute; inset: 0; width: 100%; height: 100%; display:
 .quiz-bar > div { height: 100%; background: #ffd23f; }
 .quiz-wrong { min-height: 16px; margin-top: 4px; font-size: 13px; color: #ffb3a3; }
 @media (max-width: 720px), (max-height: 520px) {
-  .gembar { bottom: auto; top: 46px; }
-  .gem { width: 54px; }
+  .gembar { bottom: auto; top: 6px; }
+  .gem { width: 54px; font-size: 11px; }
 }
+/* táctil: los botones Q/E muestran la recarga; la barra no tapa la cancha y las gemas quedan compactas arriba */
+.touch-mode .powerbar { display: none; }
+.touch-mode .gembar { bottom: auto; top: 6px; }
+.touch-mode .gem { width: 46px; padding: 2px; }
+.touch-mode .gem .gtarget, .touch-mode .gem .gstate { display: none; }
 
 .chat.overlay {
   position: absolute;
@@ -332,8 +337,8 @@ button.mini.wide { margin: 4px; }
 .joy-zone { position: absolute; left: 0; top: 0; bottom: 0; width: 50%; pointer-events: auto; touch-action: none; }
 .joy-base {
   position: absolute;
-  left: 90px;
-  top: 70%;
+  left: 84px;
+  top: calc(100% - 72px);
   width: 110px;
   height: 110px;
   margin: -55px 0 0 -55px;
@@ -353,7 +358,8 @@ button.mini.wide { margin: 4px; }
   background: rgba(255, 255, 255, 0.55);
   transform: translate(-50%, -50%);
 }
-.touch-btns { position: absolute; right: 12px; bottom: 14px; width: 170px; height: 150px; pointer-events: none; }
+/* en fila al pie, a la derecha: lejos del arco y de los postes (la cancha se centra en vertical) */
+.touch-btns { position: absolute; right: 10px; bottom: 10px; width: 230px; height: 78px; pointer-events: none; }
 .tbtn {
   position: absolute;
   border-radius: 50%;
@@ -366,9 +372,11 @@ button.mini.wide { margin: 4px; }
   -webkit-tap-highlight-color: transparent;
 }
 .tbtn:active { background: rgba(255, 255, 255, 0.35); }
-.tbtn.kick { right: 0; bottom: 0; width: 84px; height: 84px; font-size: 30px; }
-.tbtn.q { right: 92px; bottom: 6px; width: 58px; height: 58px; }
-.tbtn.e { right: 22px; bottom: 92px; width: 58px; height: 58px; }
+.tbtn.kick { right: 0; bottom: 0; width: 78px; height: 78px; font-size: 28px; }
+.tbtn.q { right: 86px; bottom: 4px; width: 62px; height: 62px; }
+.tbtn.e { right: 156px; bottom: 4px; width: 62px; height: 62px; }
+.tbtn.cool { opacity: 0.6; font-size: 18px; }
+.tbtn.active { border-color: #ffd23f; box-shadow: 0 0 8px #ffd23f; opacity: 1; }
 
 @media (max-width: 720px), (max-height: 520px) {
   .teams { grid-template-columns: 1fr 1fr 1fr; font-size: 12px; }
@@ -526,6 +534,8 @@ ul.openings li { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; 
 .auth .seg { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
 .seg button { background: #22303a; }
 .seg button.on { background: var(--btn); box-shadow: inset 0 -3px 0 var(--accent); }
+.play-card .seg { display: flex; gap: 4px; }
+.play-card .seg button { flex: 1; min-height: 34px; }
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; align-items: center; }
 .kv > span:nth-child(odd) { color: var(--muted); }
 .mono { font-family: Consolas, "Courier New", monospace; font-size: 12px; -webkit-user-select: all; user-select: all; word-break: break-all; }

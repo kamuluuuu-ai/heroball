@@ -139,6 +139,10 @@ class AccountStore {
   pending: PendingOp | null = read<PendingOp>(PENDING_KEY);
   /** Clave de la operación que se está enviando ahora (aún no es "sin respuesta"). */
   inFlight: string | null = null;
+  /** Desde cuándo se espera la primera respuesta del perfil (el servidor gratuito duerme). */
+  checkingSince = 0;
+  private retries = 0;
+  private retryTimer = 0;
 
   /** Operación sin confirmar que no está en curso: hay que comprobarla. */
   get unresolved(): PendingOp | null {
@@ -218,13 +222,18 @@ class AccountStore {
     }
     if (!this.profile) {
       this.status = 'checking';
+      if (!this.checkingSince) this.checkingSince = Date.now();
       this.emit();
     }
+    window.clearTimeout(this.retryTimer);
     try {
       this.profile = await this.call<Profile>('GET', '/api/me');
       this.status = 'signed';
       this.error = null;
+      this.retries = 0;
+      this.checkingSince = 0;
     } catch (e) {
+      this.checkingSince = 0;
       if (e instanceof ApiError && e.status === 401) {
         this.status = 'guest';
       } else if (e instanceof ApiError && e.code === 'no_economy') {
@@ -232,8 +241,10 @@ class AccountStore {
         this.error = e.message;
       } else {
         // sin conexión con la API: el juego sigue, las funciones de cuenta esperan
+        // y se reintenta solo (3, 6, 12… hasta 30 s) mientras el servidor despierta
         this.status = 'offline';
         this.error = e instanceof Error ? e.message : 'Sin conexión.';
+        this.retryTimer = window.setTimeout(() => void this.refresh(), Math.min(30000, 3000 * 2 ** this.retries++));
       }
     }
     this.emit();

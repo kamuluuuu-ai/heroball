@@ -67,7 +67,7 @@ function newPlayer(id: string, team: Team, hero: HeroId): PlayerState {
     id, team, hero, pendingHero: null,
     d: makeDisc(0, 0, 'player'),
     input: 0, prevInput: 0,
-    kickArmed: false, kickCd: 0, kickHeldTicks: 0,
+    kickArmed: false, kickCd: 0, kickHeldTicks: 0, kickGrace: 0,
     ax: teamDir(team), ay: 0,
     cdQ: 0, cdE: 0,
     dash: 0, fury: 0, superSpeed: 0,
@@ -157,12 +157,10 @@ export function resetKickoff(s: GameState, team: Team): void {
     p.ax = teamDir(p.team);
     p.ay = 0;
     p.kickArmed = false;
+    p.kickGrace = 0;
     p.kickCd = 0;
-    // todos empiezan el saque con poderes disponibles (y el cargador de CJ lleno)
-    p.cdQ = 0;
-    p.cdE = 0;
-    p.ammo = POWERS.cj.gun.shots;
-    p.gemCd = GEM_IDS.map(() => 0);
+    // las recargas siguen corriendo (también durante el festejo): un gol no
+    // devuelve todos los poderes, así el saque no es una ráfaga de habilidades
   }
   s.events.push({ type: 'kickoff' });
 }
@@ -207,10 +205,13 @@ function updatePlayer(s: GameState, p: PlayerState): void {
   // patada: se arma al apretar; mantener no repite salvo holdRepeatTicks > 0
   if (held) {
     p.kickHeldTicks++;
+    p.kickGrace = KICK.graceTicks;
     if (pressed & IN.KICK) p.kickArmed = true;
     else if (KICK.holdRepeatTicks > 0 && p.kickHeldTicks % KICK.holdRepeatTicks === 0) p.kickArmed = true;
   } else {
-    p.kickArmed = false;
+    // un toque corto sigue armado unos ticks (no se pierde por llegar justo tarde)
+    if (p.kickGrace > 0) p.kickGrace--;
+    else p.kickArmed = false;
     p.kickHeldTicks = 0;
   }
   if (p.kickCd > 0) p.kickCd--;

@@ -3,6 +3,7 @@
 // la misma lógica autoritativa (Lobby/Room/handler) y los demás se conectan por
 // WebRTC con PeerJS (señalización pública de peerjs.com).
 import Peer, { type DataConnection } from 'peerjs';
+import { isPublicKey } from '../../../shared/admin';
 import { TICK_MS } from '../../../shared/config';
 import { createHandler } from '../../../server/handler';
 import { Lobby, type Client } from '../../../server/room';
@@ -15,13 +16,21 @@ export interface Transport {
   onmessage: (raw: string) => void;
 }
 
-/** ¿Build para hosting estático (sin servidor)? */
+/** ¿Build para hosting estático (sin servidor que sirva la página)? */
 export const P2P = import.meta.env.VITE_P2P === '1';
 
+/** Backend en otro origen (VITE_API_URL), o '' si es el mismo que sirve la página. */
+const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.trim().replace(/\/+$/, '') ?? '';
+
+/**
+ * ¿Hay servidor de salas? Siempre que la página la sirve el servidor Node y, en
+ * el build estático, cuando tiene backend (VITE_API_URL): ahí están las salas
+ * oficiales y los personajes de la colección se leen de la base de datos.
+ */
+export const SERVER_ROOMS = !P2P || API_URL !== '';
+
 export function wsTransport(): Transport {
-  // backend en otro origen (VITE_API_URL) o el mismo que sirve la página
-  const api = (import.meta.env.VITE_API_URL as string | undefined)?.trim().replace(/\/+$/, '');
-  const base = api ? new URL(api) : location;
+  const base = API_URL ? new URL(API_URL) : location;
   const proto = base.protocol === 'https:' ? 'wss' : 'ws';
   const ws = new WebSocket(`${proto}://${base.host}/ws`);
   const t: Transport = {
@@ -78,6 +87,25 @@ export function peerGuestTransport(roomId: string): Transport {
   });
   peer.on('error', (e) => fail(peerError(e)));
   return t;
+}
+
+let keyCache: Promise<JsonWebKey | undefined> | null = null;
+
+/**
+ * Clave pública con la que el servidor firma moderación y personajes secretos.
+ * Sin backend se usa la clave incluida en el código (undefined).
+ */
+function serverKey(refresh: boolean): Promise<JsonWebKey | undefined> {
+  if (!API_URL) return Promise.resolve(undefined);
+  if (!keyCache || refresh) {
+    keyCache = fetch(`${API_URL}/api/signing-key`)
+      .then((r) => (r.ok ? r.json() : undefined))
+      .then((k) => (isPublicKey(k) ? k : undefined))
+      .catch(() => undefined);
+    // un fallo de red no debe quedar guardado para siempre
+    void keyCache.then((k) => { if (!k) keyCache = null; });
+  }
+  return keyCache;
 }
 
 /** Temporizador en un Worker: los navegadores lo estrangulan menos que setInterval en pestañas ocultas. */
@@ -139,7 +167,7 @@ export class BrowserHost {
           ping: 0,
           send: (m) => { if (conn.open) void conn.send(typeof m === 'string' ? m : JSON.stringify(m)); },
         };
-        const h = createHandler(this.lobby, client, { singleRoomId: this.roomId, onAbuse: () => conn.close() });
+        const h = createHandler(this.lobby, client, { singleRoomId: this.roomId, onAbuse: () => conn.close(), adminPublicKey: serverKey });
         conn.on('data', (d) => { if (typeof d === 'string') h.onMessage(d); });
         conn.on('close', () => { this.conns.delete(conn); h.onClose(); });
         conn.on('error', () => conn.close());
@@ -174,7 +202,7 @@ export class BrowserHost {
         queueMicrotask(() => t.onmessage(raw));
       },
     };
-    const h = createHandler(this.lobby, client, { singleRoomId: this.roomId });
+    const h = createHandler(this.lobby, client, { singleRoomId: this.roomId, adminPublicKey: serverKey });
     const t: Transport = {
       send: (raw) => queueMicrotask(() => h.onMessage(raw)),
       close: () => { h.onClose(); this.destroy(); },

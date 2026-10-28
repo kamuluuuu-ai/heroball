@@ -14,6 +14,7 @@ import { createPool, migrate } from './db';
 import { Economy } from './economy';
 import { createHandler } from './handler';
 import { createMailer } from './mail';
+import { signingPair } from '../shared/admin';
 import { Client, Lobby } from './room';
 
 const env = process.env;
@@ -46,6 +47,7 @@ function fail(msg: string): never {
 let economy: Economy | null = null;
 let api: ReturnType<typeof createApi> | null = null;
 let identify: ((token: string) => Promise<AccountInfo | null>) | undefined;
+let signingPublicKey: JsonWebKey | undefined;
 
 if (env.DATABASE_URL) {
   const secret = env.BETTER_AUTH_SECRET ?? '';
@@ -60,8 +62,13 @@ if (env.DATABASE_URL) {
     adminCoins: Number(env.ADMIN_MAX_COINS ?? 100_000),
     adminChests: Number(env.ADMIN_MAX_CHESTS ?? 100),
   });
+  // sin MODERATOR_SIGNING_KEY el servidor genera su propia clave al arrancar y publica la
+  // pública: Thanos y la moderación funcionan en salas P2P sin configuración extra
+  const keys = await signingPair(env.MODERATOR_SIGNING_KEY || undefined).catch((e) => fail(`MODERATOR_SIGNING_KEY inválida (${(e as Error).message}).`));
+  if (!env.MODERATOR_SIGNING_KEY) console.log('Firma para salas P2P: clave propia generada al arrancar (publicada en /api/signing-key).');
+  signingPublicKey = keys.pub;
   api = createApi({
-    auth, economy, origins: ORIGINS, moderatorSigningKey: env.MODERATOR_SIGNING_KEY || undefined,
+    auth, economy, origins: ORIGINS, moderatorSigningKey: keys.priv, signingPublicKey: keys.pub,
     // tras asignar o retirar un secreto, las salas releen la colección de esa cuenta
     onHeroesChanged: (userId) => void lobby.refreshOwned(userId).catch((e) => console.error('No se pudo releer la colección', userId, e)),
   });
@@ -127,7 +134,7 @@ wss.on('connection', (ws: WebSocket) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(typeof msg === 'string' ? msg : JSON.stringify(msg));
     },
   };
-  const h = createHandler(lobby, client, { onAbuse: () => ws.close(1008, 'demasiados mensajes inválidos'), identify });
+  const h = createHandler(lobby, client, { onAbuse: () => ws.close(1008, 'demasiados mensajes inválidos'), identify, adminPublicKey: signingPublicKey });
   ws.on('message', (data, isBinary) => {
     if (isBinary) return;
     h.onMessage(data.toString());

@@ -1,6 +1,6 @@
 // Sesiones de juego: local (entrenamiento / bots) y en red (predicción del
 // jugador local, reconciliación e interpolación de los demás).
-import { PUBLIC_HERO_IDS, HeroId, TICK_MS, isSecret } from '../../../shared/config';
+import { PUBLIC_HERO_IDS, HeroId, R, TICK_MS, isSecret } from '../../../shared/config';
 import { BotBrain, botInput, makeBrain } from '../../../shared/bot';
 import { cloneState, createGame, requestHero, resetKickoff, setInput, step } from '../../../shared/game';
 import type { Disc } from '../../../shared/physics';
@@ -210,6 +210,12 @@ export class NetSession implements Session, SnapshotSink {
   off = new Map<string, { x: number; y: number }>();
   onEvents: (ev: GameEvent[]) => void = () => {};
   active = false;
+  /**
+   * Patadas propias que ya sonaron al predecirlas (momento en ms). La
+   * confirmación del servidor de esas no vuelve a sonar; las que se predijeron
+   * con un rival encima de la pelota esperan a la confirmación (pueden no existir).
+   */
+  private soundedKicks: number[] = [];
 
   constructor(private net: NetClient) {
     this.localId = net.id;
@@ -241,8 +247,15 @@ export class NetSession implements Session, SnapshotSink {
     const diff = state.tick - this.clockTick;
     if (Math.abs(diff) > 30) this.clockTick = state.tick;
     else this.clockTick += diff * 0.1;
-    // las patadas propias ya sonaron al predecirlas
-    const ev = events.filter((e) => !(e.type === 'kick' && e.id === this.localId));
+    // las patadas propias que ya sonaron al predecirlas no se repiten; las demás suenan al confirmarse
+    const now = performance.now();
+    this.soundedKicks = this.soundedKicks.filter((t) => now - t < 1000);
+    const ev = events.filter((e) => {
+      if (e.type !== 'kick' || e.id !== this.localId) return true;
+      if (!this.soundedKicks.length) return true;
+      this.soundedKicks.shift();
+      return false;
+    });
     if (ev.length) this.onEvents(ev);
     this.reconcile(state, ack);
   }
@@ -302,14 +315,27 @@ export class NetSession implements Session, SnapshotSink {
       setInput(pred, this.localId, bits);
       pred.events = [];
       step(pred);
+      // patada propia predicha: suena ya sólo si ningún rival disputa la pelota
+      // (con un rival encima, el servidor puede verla de otra forma: se espera su confirmación)
       const mine = pred.events.filter((e) => e.type === 'kick' && e.id === this.localId);
-      if (mine.length) this.onEvents(mine);
+      if (mine.length && !this.contested(pred)) {
+        for (let i = 0; i < mine.length; i++) this.soundedKicks.push(performance.now());
+        this.onEvents(mine);
+      }
       pred.events = [];
     }
   }
 
+  /** ¿Hay un rival cerca de la pelota (a menos de 2R de su borde)? */
+  private contested(s: GameState): boolean {
+    const me = s.players.find((p) => p.id === this.localId);
+    if (!me) return false;
+    const b = s.ball;
+    return s.players.some((p) => p.team !== me.team && Math.hypot(p.d.x - b.x, p.d.y - b.y) - p.d.r - b.r < 2 * R);
+  }
+
   /**
-   * Limita el suavizado de cada disco a la mitad de su separación física con
+   * Limita el suavizado de cada disco a un tercio de su separación física con
    * el disco más cercano. Sin esto, una corrección de la pelota (por ejemplo,
    * porque un rival la tocó) la dibujaba hasta ~40 px lejos de donde realmente
    * choca: en contacto se veía un hueco o un solapamiento falso. Lejos de todo,
@@ -324,7 +350,7 @@ export class NetSession implements Session, SnapshotSink {
       for (const [id2, e] of discs) {
         if (id2 !== id) near = Math.min(near, Math.hypot(d.x - e.x, d.y - e.y) - d.r - e.r);
       }
-      const max = Math.max(0, near) / 2;
+      const max = Math.max(0, near) / 3;
       const len = Math.hypot(o.x, o.y);
       if (len > max) {
         const k = len > 0 ? max / len : 0;

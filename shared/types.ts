@@ -60,6 +60,8 @@ export interface PlayerState {
   kickArmed: boolean;
   kickCd: number;
   kickHeldTicks: number;
+  /** Ticks que la patada sigue armada tras soltar la tecla (KICK.graceTicks). */
+  kickGrace: number;
   /** Dirección apuntada: última dirección de movimiento no nula. */
   ax: number;
   ay: number;

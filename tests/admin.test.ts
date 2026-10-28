@@ -21,13 +21,13 @@ beforeAll(async () => {
 
 type Fake = Client & { msgs: any[]; h: ReturnType<typeof createHandler>; say(m: object): void };
 
-function connect(lobby: Lobby, id: string): Fake {
+function connect(lobby: Lobby, id: string, key: NonNullable<Parameters<typeof createHandler>[2]>['adminPublicKey'] = pub): Fake {
   const msgs: any[] = [];
   const c = {
     id, nick: '', room: null, ping: 0, msgs,
     send(m: unknown) { msgs.push(typeof m === 'string' ? JSON.parse(m) : m); },
   } as unknown as Fake;
-  c.h = createHandler(lobby, c, { adminPublicKey: pub });
+  c.h = createHandler(lobby, c, { adminPublicKey: key });
   c.say = (m) => c.h.onMessage(JSON.stringify(m));
   c.say({ t: 'hello', nick: id, v: 1 });
   return c;
@@ -174,6 +174,20 @@ describe('personajes secretos en salas P2P (firma del servidor)', () => {
     expect(g.msgs.some((m) => m.t === 'error' && /colección/.test(m.msg))).toBe(true);
     g.say({ t: 'heroes', heroes: ['thanos'], sig: await signHeroes(priv, nonceOf(g), 'g', ['thanos']) });
     expect(await reply(g)).toBe(true);
+    g.say({ t: 'hero', hero: 'thanos' });
+    expect(heroOf(r, 'g')).toBe('thanos');
+  });
+
+  it('clave publicada por el servidor: si la guardada no verifica, vuelve a pedirla una vez', async () => {
+    const lobby = new Lobby();
+    const { r } = hostRoom(lobby);
+    const stale = (await keyPair()).pub;
+    const asked: boolean[] = [];
+    const g = connect(lobby, 'g', async (refresh) => { asked.push(refresh); return refresh ? pub : stale; });
+    g.say({ t: 'join', room: r.id });
+    g.say({ t: 'heroes', heroes: ['thanos'], sig: await signHeroes(priv, nonceOf(g), 'g', ['thanos']) });
+    expect(await reply(g)).toBe(true);
+    expect(asked).toEqual([false, true]);
     g.say({ t: 'hero', hero: 'thanos' });
     expect(heroOf(r, 'g')).toBe('thanos');
   });

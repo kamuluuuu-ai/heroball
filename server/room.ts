@@ -6,7 +6,7 @@ import { addPlayer, createGame, removePlayer, requestHero, setInput, step } from
 import {
   AdminState, DEFAULT_SETTINGS, MAX_CHAT, MAX_ROOM_NAME, RoomInfo, RoomSettings, RoomSummary, ServerMsg, cleanText,
 } from '../shared/protocol';
-import { GameEvent, GameState, IN, Side, Team } from '../shared/types';
+import { GameEvent, GameState, IN, IN_NUM_MASK, Side, Team } from '../shared/types';
 import { OFFICIAL_MODES, type MatchSummary, type OfficialAdapter } from './official';
 
 export interface Client {
@@ -50,6 +50,16 @@ interface OfficialMatch {
 }
 
 const POWER_BITS = IN.KICK | IN.Q | IN.E;
+
+/**
+ * Junta una entrada descartada con la siguiente sin perder pulsaciones: patada,
+ * Q y E se suman; el número (gema de Thanos, respuesta del quiz) se conserva si
+ * la siguiente no trae otro.
+ */
+export function mergeBits(dropped: number, next: number): number {
+  const num = (next & IN_NUM_MASK) || (dropped & IN_NUM_MASK);
+  return (next & ~IN_NUM_MASK) | (dropped & POWER_BITS) | num;
+}
 
 /** Recursos que no se recuperan saliendo y volviendo durante el mismo partido (cargador de CJ, recargas). */
 interface Kept { ammo: number; cdQ: number; cdE: number; gemCd: number[] }
@@ -433,7 +443,10 @@ export class Room {
     if (!m || m.bot || m.side === 'spec' || !this.game) return;
     if (seq <= m.ack || (m.queue.length && seq <= m.queue[m.queue.length - 1].s)) return;
     m.queue.push({ s: seq, b: bits });
-    if (m.queue.length > MAX_QUEUE * 2) m.queue.splice(0, m.queue.length - MAX_QUEUE * 2);
+    while (m.queue.length > MAX_QUEUE * 2) {
+      const old = m.queue.shift()!;
+      m.queue[0].b = mergeBits(old.b, m.queue[0].b);
+    }
   }
 
   private nextBits(m: Member): number {
@@ -444,11 +457,13 @@ export class Room {
     }
     m.starved = 0;
     // si el cliente va adelantado, descartamos entradas viejas sin perder pulsaciones
-    let carry = 0;
-    while (m.queue.length > MAX_QUEUE) carry |= m.queue.shift()!.b & POWER_BITS;
+    while (m.queue.length > MAX_QUEUE) {
+      const old = m.queue.shift()!;
+      m.queue[0].b = mergeBits(old.b, m.queue[0].b);
+    }
     const next = m.queue.shift()!;
     m.ack = next.s;
-    const bits = next.b | carry;
+    const bits = next.b;
     if (bits !== m.lastBits) m.lastActive = this.ticks;
     m.lastBits = bits;
     return m.lastBits;

@@ -2,10 +2,10 @@
 // por WebRTC). Los snapshots van directo a la sesión de juego (sin pasar por
 // React); la interfaz sólo escucha sala, chat y estado.
 import { PROTOCOL_VERSION, type AccountInfo, type AdminState, type ClientMsg, type RoomInfo, type RoomSettings, type RewardInfo, type RoomSummary, type ServerMsg } from '../../../shared/protocol';
-import { SECRET_IDS } from '../../../shared/config';
+import { SECRET_IDS, isSecret, type HeroId } from '../../../shared/config';
 import { account } from '../account';
 import type { GameEvent, GameState, Side } from '../../../shared/types';
-import { BrowserHost, P2P, peerGuestTransport, wsTransport, type Transport } from './transport';
+import { BrowserHost, P2P, SERVER_ROOMS, peerGuestTransport, wsTransport, type Transport } from './transport';
 
 export type ConnStatus = 'connecting' | 'open' | 'closed';
 
@@ -27,8 +27,20 @@ export interface SnapshotSink {
 let chatId = 0;
 
 export class NetClient {
-  /** true en el build web: sin servidor central, salas alojadas en el navegador. */
-  readonly p2p = P2P;
+  /**
+   * true: salas alojadas en un navegador (WebRTC). Sin servidor de salas es lo
+   * único posible; con servidor se usa si se elige o si la invitación es P2P.
+   */
+  p2p = !SERVER_ROOMS || (typeof location !== 'undefined' && new URLSearchParams(location.search).get('modo') === 'p2p');
+  /** ¿Se puede elegir entre salas del servidor y salas en el navegador? */
+  readonly canChooseMode = P2P && SERVER_ROOMS;
+  /** Intentos seguidos de conectar con el servidor sin éxito (el plan gratuito duerme). */
+  failures = 0;
+  /** Desde cuándo se intenta conectar (para avisar que el servidor está despertando). */
+  connectingSince = 0;
+  private retryTimer = 0;
+  /** Último héroe pedido: se reenvía cuando el anfitrión P2P acepta la firma de los personajes especiales. */
+  private wantedHero: HeroId | null = null;
   private transport: Transport | null = null;
   private host: BrowserHost | null = null;
   status: ConnStatus = 'closed';
@@ -97,14 +109,43 @@ export class NetClient {
       return;
     }
     this.pendingJoin = joinRoom ?? null;
+    window.clearTimeout(this.retryTimer);
+    if (this.failures > 0) {
+      // reintento con espera creciente (2, 4, 8… hasta 20 s) mientras el servidor despierta
+      this.status = 'connecting';
+      this.emit();
+      this.retryTimer = window.setTimeout(() => this.attach(wsTransport()), Math.min(20000, 1000 * 2 ** this.failures));
+      return;
+    }
     this.attach(wsTransport());
+  }
+
+  /** Cambia entre salas del servidor y salas en el navegador (sólo fuera de una sala). */
+  setMode(p2p: boolean): void {
+    if (!this.canChooseMode || this.room || p2p === this.p2p) return;
+    this.disconnect();
+    this.p2p = p2p;
+    this.failures = 0;
+    this.error = null;
+    this.emit();
+  }
+
+  /** Pide un héroe en la sala (y lo recuerda para reenviarlo si hacía falta verificar un personaje especial). */
+  requestHero(hero: HeroId): void {
+    this.wantedHero = hero;
+    this.send({ t: 'hero', hero });
   }
 
   private attach(t: Transport): void {
     this.transport = t;
     this.status = 'connecting';
+    if (!this.connectingSince) this.connectingSince = performance.now();
     this.emit();
+    let opened = false;
     t.onopen = () => {
+      opened = true;
+      this.failures = 0;
+      this.connectingSince = 0;
       this.status = 'open';
       this.error = null;
       this.ping = 0;
@@ -124,6 +165,8 @@ export class NetClient {
     };
     t.onclose = (reason) => {
       if (this.transport !== t) return;
+      if (!opened && !this.p2p) this.failures++;
+      else this.connectingSince = 0;
       this.detach();
       if (reason) this.error = reason;
       this.emit();
@@ -253,6 +296,8 @@ export class NetClient {
   }
 
   disconnect(): void {
+    window.clearTimeout(this.retryTimer);
+    this.connectingSince = 0;
     const t = this.transport;
     this.detach();
     t?.close();
@@ -338,6 +383,11 @@ export class NetClient {
         break;
       case 'heroes':
         this.heroesError = m.ok ? null : 'El anfitrión no reconoció la firma de tus personajes especiales.';
+        // el pedido de un personaje especial que llegó antes que la firma vale ahora
+        if (m.ok && this.wantedHero && isSecret(this.wantedHero) && this.room?.members.find((x) => x.id === this.id)?.hero !== this.wantedHero) {
+          if (this.error?.includes('personaje especial')) this.error = null;
+          this.send({ t: 'hero', hero: this.wantedHero });
+        }
         break;
       case 'adminstate':
         this.adminState = m.s;

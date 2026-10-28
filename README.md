@@ -5,19 +5,24 @@ Proyecto independiente **inspirado en HaxBall**; no es HaxBall ni su sitio ofici
 
 ![Inicio con cuenta](docs/capturas/01-jugar.jpg)
 
-> **Estado de la economía.** Cuentas, monedas, cofres, colección, partidas oficiales y administración están
-> terminados y probados **contra PostgreSQL real en local**. El sitio público de GitHub Pages **todavía no tiene
-> backend desplegado**: ahí se juega como invitado (entrenamiento, bots y salas P2P casuales) y las pestañas
-> Cofres/Perfil explican que no hay servidor de cuentas. Ver [Pendientes reales](#pendientes-reales).
+> **Estado.** El sitio de GitHub Pages usa el backend de Render (`https://heroball-api.onrender.com`, PostgreSQL en
+> Neon) para cuentas, monedas, cofres, colección, administración y **salas del servidor** (casuales u oficiales con
+> recompensas). Las salas P2P en el navegador siguen disponibles como alternativa. Ver
+> [Pendientes reales](#pendientes-reales).
 
 ## Jugar en línea
 
 **https://kamuluuuu-ai.github.io/heroball/**
 
-La versión web no tiene servidor central: quien toca *Crear sala* aloja la partida en su navegador
-(corre la simulación autoritativa, igual que el servidor Node) y los demás entran con el enlace de invitación,
-conectados por WebRTC ([PeerJS](https://peerjs.com) para la señalización). Estas salas son **siempre casuales**:
-un navegador anfitrión no puede emitir recompensas. Limitaciones de este modo:
+En *Multijugador* se elige dónde corre la sala:
+
+- **Servidor** (predeterminado cuando hay `VITE_API_URL`): la sala corre en el backend, que lee de la base de datos
+  qué personajes tiene cada cuenta y es el único que puede dar recompensas (partidas oficiales). El plan gratis de
+  Render duerme el servidor: la primera conexión puede tardar hasta un minuto («Despertando el servidor…») y el
+  cliente reintenta solo.
+- **En tu navegador (P2P)**: quien toca *Crear sala* aloja la partida en su navegador (corre la misma simulación
+  autoritativa) y los demás entran con el enlace de invitación (lleva `&modo=p2p`), conectados por WebRTC
+  ([PeerJS](https://peerjs.com) para la señalización). Estas salas son **siempre casuales**. Limitaciones:
 
 - No hay lista pública de salas: se entra por enlace o código.
 - Si el anfitrión cierra o minimiza mucho tiempo la pestaña, la sala termina para todos.
@@ -40,7 +45,8 @@ npm run dev                   # otra terminal: servidor (3001) + Vite (5173)
 Abrí <http://localhost:5173>, creá una cuenta en *Perfil* y vas a recibir la bienvenida (400 HeroCoins y
 2 cofres estándar). Con Docker, en lugar de `npm run dev:db`: `docker compose up -d`.
 
-- Migraciones: se aplican al arrancar (`MIGRATE_ON_START=1`) o con `npm run db:migrate`. Están en `migrations/`.
+- Migraciones: se aplican al arrancar (`MIGRATE_ON_START=1`) o con `npm run db:migrate`. Están en `migrations/`. La `0004` hace que el registro de
+  entregas de personajes tampoco se pueda borrar (antes sólo impedía modificarlo).
 - Sin `DATABASE_URL` el servidor arranca igual, sólo con partidas casuales (`/api/*` responde 503 `no_economy`).
 - Sin `SMTP_URL`, el enlace de recuperación de contraseña se escribe en la consola del servidor.
 - Producción en un solo proceso: `npm run build && npm start` (sirve `dist/`, la API y el WebSocket en `/ws`).
@@ -87,11 +93,12 @@ minuto y las salas abiertas se pierden (cuentas y saldos quedan en Neon).
 3. Comprobar `GET https://tu-backend/api/health` → `{"ok":true,"economy":true}`.
 4. Asignar el administrador inicial con `npm run admin:role` (arriba).
 
-`MODERATOR_SIGNING_KEY` es la clave **privada** (PKCS#8 base64) que corresponde a la clave pública de
-`shared/admin.ts`. Sólo vive en el servidor: con ella el backend firma el desafío de una sala P2P para una cuenta
-con rol `moderator` y, para cualquier cuenta, la lista de sus personajes secretos (Thanos) que presenta al
-anfitrión P2P. Sin esta variable Thanos funciona sin conexión y en salas del servidor, pero no en salas P2P. Si ya tenías la clave del administrador anterior, va acá; para generar otra:
-`npm run admin:keygen` y publicar la pública nueva en `shared/admin.ts`.
+`MODERATOR_SIGNING_KEY` es la clave **privada** (PKCS#8 base64) con la que el backend firma el desafío de una sala
+P2P para una cuenta con rol `moderator` y, para cualquier cuenta, la lista de sus personajes secretos (Thanos) que
+presenta al anfitrión P2P. Es **opcional**: sin ella el servidor genera un par propio al arrancar (lo avisa en el
+registro) y publica la mitad pública en `GET /api/signing-key`; los anfitriones P2P la descargan y, si una firma no
+verifica con la guardada, la vuelven a pedir una vez (por ejemplo, después de un reinicio del servidor). Configurarla
+sólo hace que la clave sobreviva a los reinicios. Para generar una: `npm run admin:keygen`.
 
 ### Frontend (GitHub Pages)
 
@@ -267,6 +274,8 @@ Reglas comunes:
 - Los poderes se activan por flanco (mantener la tecla no repite), no funcionan en saque, pausa, celebración ni
   como espectador. No hay vida o daño, y lo visual nunca cambia la colisión: la única excepción es el Cuerpo
   gigante de Ibai, que cambia su radio físico de a poco y sólo en espacio libre.
+- Las recargas (y las balas de CJ y las gemas de Thanos) siguen corriendo durante el saque: un gol no las reinicia.
+- La patada queda armada 0,1 s después de soltar la tecla, así un toque corto no se pierde por la red.
 - **Autoapuntado compartido** (todos los poderes que se lanzan): cono de 100° alrededor de la última dirección de
   movimiento; gana el menor ángulo, luego la menor distancia, luego el id estable; con línea de visión (los postes
   tapan). Anticipación moderada; la trayectoria queda fija al lanzar. Nunca aliados ni la pelota protegida. Los de
@@ -292,9 +301,9 @@ Reglas comunes:
 tiene. Lo asigna o retira un administrador (motivo obligatorio y auditoría). Quien lo tiene lo usa en **todos los
 modos**: entrenamiento, contra bots, salas P2P y salas del servidor (casuales u oficiales, con las recompensas
 normales). La propiedad nunca sale del navegador: sin conexión se usa la colección que devuelve el servidor; en el
-servidor se lee de la base de datos en cada cambio; en una sala P2P el servidor firma (con `MODERATOR_SIGNING_KEY`)
-la lista de secretos de la cuenta para el desafío de esa conexión y el anfitrión verifica la firma con la clave
-pública. Esa firma no sirve en otra conexión ni como permiso de moderador. Un retiro vale en salas del servidor en el
+servidor se lee de la base de datos en cada cambio; en una sala P2P el servidor firma la lista de secretos de la
+cuenta para el desafío de esa conexión y el anfitrión verifica la firma con la clave pública de `/api/signing-key`
+(si el personaje se pidió antes de que llegara la firma, el cliente lo vuelve a pedir al verificarse). Esa firma no sirve en otra conexión ni como permiso de moderador. Un retiro vale en salas del servidor en el
 próximo saque; en una sala P2P, a partir de la próxima conexión.
 
 ## Arquitectura
@@ -364,11 +373,12 @@ dibuja radios, alcance de patada y posiciones de red.
 ## Pruebas
 
 ```bash
-npm test          # 269 pruebas (incluye PostgreSQL embebido real en tests/db.test.ts)
+npm test          # 273 pruebas (incluye PostgreSQL embebido real en tests/db.test.ts)
 npm run typecheck
 ```
 
-Última ejecución: 16 archivos, 269 pruebas, todas pasan. `tests/render.test.ts` dibuja partidas con todos los efectos nuevos sobre un canvas simulado. `tests/newheroes.test.ts` cubre los seis personajes
+Última ejecución: 17 archivos, 273 pruebas, todas pasan. `tests/signing.test.ts` cubre la clave de firma generada
+o derivada y la cola de entradas que no pierde patadas ni la gema elegida. `tests/render.test.ts` dibuja partidas con todos los efectos nuevos sobre un canvas simulado. `tests/newheroes.test.ts` cubre los seis personajes
 nuevos en Héroes y Súper, el autoapuntado (pelota, rivales, aliados, pelota protegida, poste, fuera de alcance,
 punto de caída de la TNT), las tres balas y la recarga de CJ, rosquilla, charco, crecimiento sin superposición,
 quiz (respuesta, error, tiempo, inmunidad, bots), TNT al reiniciar y al desconectarse, historial que no cruza
@@ -393,13 +403,17 @@ respuesta que se confirma con la misma clave.
 
 ## Pendientes reales
 
-- **Backend no desplegado públicamente.** El código, las migraciones y la configuración están listos, pero no hay
-  servidor ni base de datos en Internet, así que en https://kamuluuuu-ai.github.io/heroball/ la economía **no está
-  disponible**. Falta elegir hosting (Node + PostgreSQL con HTTPS), cargar las variables y crear `VITE_API_URL`.
+- **Servidor gratis que duerme**: Render apaga el backend sin uso; la primera conexión tarda. Con una clave generada
+  al arrancar, cada reinicio cambia la firma P2P (los anfitriones la vuelven a pedir solos); configurar
+  `MODERATOR_SIGNING_KEY` la deja fija.
+- **Gema de la Realidad**: la ilusión es sólo visual, pero el estado que reciben los clientes incluye la pelota
+  real, así que un cliente modificado podría distinguirla.
+- **Predicción del rebobinado** (Doctor Strange) en el cliente: puede verse un salto corto al corregirse.
+- Los datos de Thanos (nombre, poderes) están en el código público del cliente, aunque la interfaz sólo lo muestra a
+  quien lo tiene; la propiedad la valida siempre el servidor.
+- En vertical en un teléfono la cancha queda chica (se sugiere girar el teléfono).
 - **Correo**: sin `SMTP_URL` real la recuperación de contraseña sólo funciona leyendo el enlace en la consola del
   servidor. No se probó con un proveedor SMTP real.
-- **Moderación en el sitio público**: el acceso con la clave privada en el navegador se quitó a propósito. Hasta que
-  haya backend con `MODERATOR_SIGNING_KEY`, no hay moderador global en las salas P2P de Pages.
 - No verificado en el navegador: el aviso de recompensa al terminar una partida oficial entre dos personas reales
   (sí está cubierto por una prueba automatizada que juega el partido por WebSocket); controles táctiles en un
   teléfono físico (sólo emulación de tamaño).

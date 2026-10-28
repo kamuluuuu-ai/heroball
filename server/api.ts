@@ -16,8 +16,10 @@ export interface ApiOptions {
   economy: Economy;
   /** Orígenes permitidos para CORS (p. ej. https://kamuluuuu-ai.github.io). */
   origins: string[];
-  /** Clave privada (PKCS#8 base64) para firmar permisos de moderación en salas P2P. */
+  /** Clave privada (PKCS#8 base64) para firmar permisos de moderación y personajes secretos en salas P2P. */
   moderatorSigningKey?: string;
+  /** Clave pública correspondiente: los anfitriones P2P la piden en /api/signing-key. */
+  signingPublicKey?: JsonWebKey;
   /** Aviso a las salas cuando cambia la colección de una cuenta (asignación o retiro de un secreto). */
   onHeroesChanged?: (userId: string) => void;
 }
@@ -90,6 +92,11 @@ export function createApi(o: ApiOptions): Handler {
     try {
       if (get && path === '/api/economy/config') {
         json(res, 200, { version: ECONOMY.version, chests: ECONOMY.chests, pity: ECONOMY.pity, duplicateFragments: ECONOMY.duplicateFragments, unlockCost: ECONOMY.unlockCost, welcome: ECONOMY.welcome, match: ECONOMY.match, objectives: ECONOMY.objectives });
+        return true;
+      }
+      if (get && path === '/api/signing-key') {
+        if (!o.signingPublicKey) throw new EconomyError('no_key', 'Este servidor no firma permisos para salas del navegador.', 503);
+        json(res, 200, o.signingPublicKey);
         return true;
       }
       if (get && path === '/api/me') {

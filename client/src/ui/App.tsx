@@ -104,6 +104,9 @@ export function App() {
     const url = new URL(location.href);
     if (n.room) url.searchParams.set('sala', n.room.id);
     else url.searchParams.delete('sala');
+    // las invitaciones a salas del navegador lo dicen (el mismo código no existe en el servidor)
+    if (n.room && n.p2p && n.canChooseMode) url.searchParams.set('modo', 'p2p');
+    else url.searchParams.delete('modo');
     history.replaceState(null, '', url);
   }, [n.room?.id]); // eslint-disable-line
 
@@ -293,7 +296,13 @@ function PlayTab({ prefs, setPrefs, nick, onOffline, onLogin, onHeroes }: {
         </div>
         <div className="play-card">
           <b>Multijugador</b>
-          <span className="small muted">{n.p2p ? 'Sala alojada en tu navegador; invitá con un enlace. Siempre casual.' : 'Salas en el servidor. Las oficiales dan recompensas a cuentas.'}</span>
+          <span className="small muted">{n.p2p ? 'Sala alojada en tu navegador; invitá con un enlace. Siempre casual.' : 'Salas en el servidor: casuales u oficiales (dan recompensas a cuentas).'}</span>
+          {n.canChooseMode && (
+            <div className="seg" role="radiogroup" aria-label="Dónde se juega la sala">
+              <button role="radio" aria-checked={!n.p2p} className={!n.p2p ? 'on' : ''} onClick={() => n.setMode(false)}>Servidor</button>
+              <button role="radio" aria-checked={n.p2p} className={n.p2p ? 'on' : ''} onClick={() => n.setMode(true)}>En tu navegador</button>
+            </div>
+          )}
           <button className="primary" onClick={() => setCreating(true)} disabled={n.status !== 'open' || !nick}>Crear sala</button>
         </div>
       </div>
@@ -313,9 +322,9 @@ function PlayTab({ prefs, setPrefs, nick, onOffline, onLogin, onHeroes }: {
           {!n.p2p && <button className="mini" onClick={() => n.send({ t: 'list' })} disabled={n.status !== 'open'}>Actualizar</button>}
           {n.status === 'closed' && nick && <button className="mini" onClick={() => n.connect(nick)}>Reconectar</button>}
         </div>
-        {!nick && <div className="empty short">Elegí un apodo{acc.enabled && !signed ? <> o <button className="link" onClick={onLogin}>entrá con tu cuenta</button></> : null} para ver las salas.</div>}
-        {nick && n.status === 'connecting' && <div className="empty short">{n.p2p ? 'Conectando con la sala…' : 'Conectando con el servidor…'}</div>}
-        {nick && n.status === 'closed' && <div className="empty short">Sin conexión con el servidor de salas. Entrenamiento y bots funcionan igual.</div>}
+        {!nick && <div className="empty short">Elegí un apodo{acc.enabled && !signed ? <> o <button className="link" onClick={onLogin}>entrá con tu cuenta</button></> : null} para {n.p2p ? 'crear o unirte a una sala' : 'ver las salas'}.</div>}
+        {nick && n.status === 'connecting' && <ConnectingNote />}
+        {nick && n.status === 'closed' && <div className="empty short">Sin conexión con el servidor de salas. Entrenamiento y bots funcionan igual.{n.canChooseMode && <> También podés <button className="link" onClick={() => n.setMode(true)}>crear una sala en tu navegador</button>.</>}</div>}
         {nick && n.status === 'open' && n.p2p && <WebModeHelp />}
         {nick && n.status === 'open' && !n.p2p && n.rooms?.length === 0 && <div className="empty short">No hay salas abiertas. Creá una e invitá con el enlace.</div>}
         {nick && n.status === 'open' && !n.p2p && !!n.rooms?.length && (
@@ -346,6 +355,24 @@ function PlayTab({ prefs, setPrefs, nick, onOffline, onLogin, onHeroes }: {
   );
 }
 
+/** Conectando: el plan gratuito del servidor duerme y tarda en despertar. */
+function ConnectingNote() {
+  const n = useNet();
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const t = window.setInterval(() => tick((x) => x + 1), 1000);
+    return () => window.clearInterval(t);
+  }, []);
+  if (n.p2p) return <div className="empty short">Conectando con la sala…</div>;
+  const secs = n.connectingSince ? Math.round((performance.now() - n.connectingSince) / 1000) : 0;
+  return (
+    <div className="empty short" role="status">
+      {secs < 4 ? 'Conectando con el servidor…' : `Despertando el servidor (${secs} s; la primera visita puede tardar cerca de un minuto)…`}
+      {secs >= 4 && n.canChooseMode && <> Mientras tanto podés <button className="link" onClick={() => n.setMode(true)}>crear una sala en tu navegador</button>.</>}
+    </div>
+  );
+}
+
 function WebModeHelp() {
   const n = useNet();
   const [code, setCode] = useState('');
@@ -357,7 +384,7 @@ function WebModeHelp() {
   };
   return (
     <div className="empty web-help">
-      <p>Versión web: no hay servidor de salas ni lista pública. <b>Crear sala</b> la aloja en tu navegador; compartí el enlace para que entren otros.</p>
+      <p>{n.canChooseMode ? 'Sala en tu navegador: no aparece en la lista pública y es siempre casual.' : 'Versión web: no hay servidor de salas ni lista pública.'} <b>Crear sala</b> la aloja en tu navegador; compartí el enlace para que entren otros.</p>
       <form className="join-code" onSubmit={(e) => { e.preventDefault(); join(); }}>
         <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="Pegá un enlace o código de sala" aria-label="Enlace o código de sala" />
         <button type="submit" disabled={!code.trim()}>Unirse</button>
@@ -370,7 +397,7 @@ const MODE_LABEL: Record<GameMode, string> = { heroes: 'Héroes', super: 'Súper
 
 function ConnBadge() {
   const n = useNet();
-  if (n.p2p && !n.linked && n.status === 'open') return <span className="conn open">● Modo web (salas P2P)</span>;
+  if (n.p2p && !n.linked && n.status === 'open') return <span className="conn open">● Salas en tu navegador (P2P)</span>;
   const label = n.status === 'open' ? `Conectado · ${Math.round(n.ping)} ms` : n.status === 'connecting' ? 'Conectando…' : 'Desconectado';
   return <span className={`conn ${n.status}`} role="status">● {label}</span>;
 }
@@ -549,7 +576,7 @@ function OnlineRoom({ prefs, setPrefs }: { prefs: Prefs; setPrefs: (p: Prefs) =>
 
   // al entrar, pedir el héroe preferido (el servidor lo rechaza si la sala es oficial y no lo tenés)
   useEffect(() => {
-    if (me && me.hero !== prefs.hero) n.send({ t: 'hero', hero: prefs.hero });
+    if (me && me.hero !== prefs.hero) n.requestHero(prefs.hero);
   }, [me?.id]); // eslint-disable-line
 
   const open = menu || !room.playing;
@@ -618,7 +645,7 @@ function RoomPanel({ room, prefs, setPrefs, onClose }: { room: RoomInfo; prefs: 
   const isHost = room.hostId === n.id || n.isAdmin;
   const [copied, setCopied] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const invite = `${location.origin}${location.pathname}?sala=${room.id}`;
+  const invite = `${location.origin}${location.pathname}?sala=${room.id}${n.p2p && n.canChooseMode ? '&modo=p2p' : ''}`;
   const official = room.settings.official;
   const owned = acc.owned();
   // colección al día al entrar (p. ej. si recién te asignaron un personaje especial) y, en P2P, firmada para el anfitrión
@@ -685,7 +712,7 @@ function RoomPanel({ room, prefs, setPrefs, onClose }: { room: RoomInfo; prefs: 
               secrets={SECRET_IDS.filter((h) => owned.has(h))}
               onChange={(hero: HeroId) => {
                 setPrefs({ ...prefs, hero });
-                n.send({ t: 'hero', hero });
+                n.requestHero(hero);
               }}
               note={[
                 official ? 'Sala oficial: sólo héroes de tu colección (🔒 = bloqueado).' : '',

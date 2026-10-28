@@ -46,6 +46,12 @@ export const KICK = {
    * se rearma cada N ticks.
    */
   holdRepeatTicks: 0,
+  /**
+   * Ticks que una patada tocada sigue armada después de soltar la tecla. Un
+   * toque corto que llega con la pelota a unos píxeles de distancia (o con la
+   * red unos ticks atrasada) no se pierde.
+   */
+  graceTicks: 6,
 };
 
 export const LIMITS = {
@@ -182,8 +188,6 @@ export const POWERS = {
       slowTicks: sec(0.8),
       /** Autoapuntado a la pelota o a un rival dentro del alcance. */
       autoAim: true,
-      /** Medio ángulo (grados) alrededor de la dirección apuntada donde busca objetivo. */
-      autoAimCone: 90,
       cooldown: sec(6),
     },
     grapple: {

@@ -70,7 +70,7 @@ describe('reglas comunes', () => {
     expect(s.players[1].ax).toBe(-1);
   });
 
-  it('un gol limpia proyectiles y efectos, y el saque devuelve los poderes', () => {
+  it('un gol limpia proyectiles y efectos; las recargas siguen corriendo en el saque', () => {
     const s = game([{ id: 'a', team: 'red', hero: 'batman' }, { id: 'b', team: 'blue', hero: 'hulk' }]);
     place(s, 'a', -100, 150);
     place(s, 'b', 100, -150);
@@ -86,7 +86,9 @@ describe('reglas comunes', () => {
     expect(s.players[1].fury).toBe(0);
     for (let i = 0; i < 200 && s.phase !== 'kickoff'; i++) tick(s);
     expect(s.phase).toBe('kickoff');
-    expect(s.players.every((p) => p.cdQ === 0 && p.cdE === 0)).toBe(true);
+    // batarang (6 s) y furia (12 s) se usaron hace ~2,6 s: siguen recargando
+    expect(s.players[0].cdQ).toBeGreaterThan(0);
+    expect(s.players[1].cdE).toBeGreaterThan(0);
   });
 
   it('cambio de héroe en partido: se aplica en el próximo saque', () => {

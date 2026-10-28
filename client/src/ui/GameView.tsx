@@ -48,6 +48,8 @@ export function GameView(p: Props) {
   propsRef.current = p;
   const [chatFocus, setChatFocus] = useState(0);
   const touch = p.prefs.touch === 'on' || (p.prefs.touch === 'auto' && isTouchDevice());
+  const touchRef = useRef(touch);
+  touchRef.current = touch;
 
   // bucle de juego
   useEffect(() => {
@@ -61,6 +63,8 @@ export function GameView(p: Props) {
       () => ({
         names: propsRef.current.names, zoom: propsRef.current.prefs.zoom, showNames: propsRef.current.prefs.showNames, debug: propsRef.current.prefs.debug,
         reducedFx: propsRef.current.prefs.effects === 'reduced' || prefersReducedMotion(),
+        // con teclado la barra de poderes (y la de gemas) va debajo de la cancha; en táctil se oculta
+        insetBottom: touchRef.current ? 0 : hudHeight(powersRef.current, gemsRef.current),
       }),
       (view) => hud.update(view, p.session.localId),
     );
@@ -130,7 +134,7 @@ export function GameView(p: Props) {
           <button className="tb-btn" onClick={p.onToggleMenu} title="Menú (Esc)">Menú</button>
         </div>
       </div>
-      <div className="stage">
+      <div className={`stage${touch ? ' touch-mode' : ''}`}>
         <canvas ref={canvasRef} className="field" />
         <div ref={idleRef} className="idle-msg" style={{ display: 'none' }}>{p.idle}</div>
         <div ref={powersRef} className="powerbar" />
@@ -145,15 +149,21 @@ export function GameView(p: Props) {
   );
 }
 
+/** Alto (px) que ocupan las barras visibles de poderes y gemas, más un margen. */
+function hudHeight(powers: HTMLElement | null, gems: HTMLElement | null): number {
+  let h = 0;
+  if (powers && powers.style.display !== 'none' && powers.childElementCount) h += powers.offsetHeight + 12;
+  if (gems && gems.style.display !== 'none') h += gems.offsetHeight + 6;
+  return h;
+}
+
 /** Qué toma cada gema (se muestra en la barra de gemas). */
-function gemTarget(s: GameState, i: number): string {
-  const P = powersFor(s.mode).thanos;
-  const r = (v: number) => `${Math.round(v / 15)}R`;
+function gemTarget(i: number): string {
   switch (GEM_IDS[i]) {
-    case 'time': return `rival ${r(P.time.range)}`;
-    case 'mind': return `rival ${r(P.mind.range)}`;
-    case 'reality': return 'rivales';
-    case 'space': return `pelota ${r(P.space.range)}`;
+    case 'time': return 'rival cercano';
+    case 'mind': return 'rival a la vista';
+    case 'reality': return 'engaña rivales';
+    case 'space': return 'ir a la pelota';
     default: return 'tu patada';
   }
 }
@@ -209,7 +219,7 @@ class HudWriter {
   }
 
   /** Barra de gemas de Thanos: nombre, tecla, objetivo, estado y recarga; tocar una la elige. */
-  private buildGems(s: GameState): void {
+  private buildGems(): void {
     this.gems.textContent = '';
     this.gemItems = GEM_IDS.map((g, i) => {
       const root = document.createElement('button');
@@ -227,7 +237,7 @@ class HudWriter {
       name.textContent = GEM_LABEL[g];
       const target = document.createElement('span');
       target.className = 'gtarget';
-      target.textContent = gemTarget(s, i);
+      target.textContent = gemTarget(i);
       const cd = document.createElement('span');
       cd.className = 'gcd';
       const state = document.createElement('span');
@@ -345,7 +355,7 @@ class HudWriter {
         sl.root.title = `${pw.name}: ${pw.desc}`;
         sl.label.textContent = pw.name;
       }
-      if (thanos) this.buildGems(s);
+      if (thanos) this.buildGems();
       this.q.ammo.textContent = '';
     }
     // aturdido, atrapado, controlado o con quiz: el texto dice por qué
@@ -397,6 +407,14 @@ class HudWriter {
       ? (active ? 'ACTIVA' : why ?? (blocked ? 'En pausa' : 'LISTO'))
       : (active ? 'Activo' : why ?? (blocked ? 'En pausa' : cd > 0 ? 'Recargando' : 'Listo'));
     if (sl.state.textContent !== state) sl.state.textContent = state;
+    // en táctil la barra se oculta: el botón Q/E muestra la recarga
+    const btn = this.powers.parentElement?.querySelector<HTMLElement>(`.tbtn.${sl === this.q ? 'q' : 'e'}`);
+    if (btn) {
+      const label = txt || (sl === this.q ? 'Q' : 'E');
+      if (btn.textContent !== label) btn.textContent = label;
+      btn.classList.toggle('cool', txt !== '' || blocked);
+      btn.classList.toggle('active', active);
+    }
   }
 }
 

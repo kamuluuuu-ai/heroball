@@ -79,19 +79,37 @@ function noticeText(n: Notice): string {
   return 'Aviso nuevo.';
 }
 
+/** Re-renderiza cada segundo mientras `on` (contador del aviso de servidor dormido). */
+function useWakeTicker(on: boolean) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!on) return;
+    const t = window.setInterval(() => tick((x) => x + 1), 1000);
+    return () => window.clearInterval(t);
+  }, [on]);
+}
+
 export function NoticeBar() {
   const a = useAccount();
   const notes = a.profile?.notifications ?? [];
   const pending = a.unresolved;
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  if (!notes.length && !pending && a.status !== 'offline') return null;
+  const waking = a.status === 'checking' && a.checkingSince > 0;
+  useWakeTicker(waking);
+  const slow = waking && Date.now() - a.checkingSince > 4000;
+  if (!notes.length && !pending && a.status !== 'offline' && !slow) return null;
   return (
     <div className="notices">
+      {slow && (
+        <div className="notice" role="status">
+          Despertando el servidor de cuentas (la primera visita puede tardar cerca de un minuto). Tu colección, cofres y Administración aparecen cuando responda; mientras tanto podés entrenar.
+        </div>
+      )}
       {a.status === 'offline' && (
         <div className="notice warn" role="status">
-          Sin conexión con el servidor de cuentas: podés seguir jugando (entrenamiento, bots y salas), pero cofres, colección y perfil esperan a que vuelva.
-          <button className="mini" onClick={() => void a.refresh()}>Reintentar</button>
+          Sin conexión con el servidor de cuentas: se reintenta solo. Podés seguir jugando (entrenamiento, bots y salas); cofres, colección, perfil y Administración esperan a que vuelva.
+          <button className="mini" onClick={() => void a.refresh()}>Reintentar ahora</button>
         </div>
       )}
       {pending && (

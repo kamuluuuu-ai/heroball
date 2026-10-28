@@ -10,13 +10,27 @@ export interface HandlerOptions {
   /** Sólo para el modo anfitrión en navegador: una única sala con id fijo. */
   singleRoomId?: string;
   onAbuse?: () => void;
-  /** Sólo para pruebas: otra clave pública de administrador. */
-  adminPublicKey?: JsonWebKey;
+  /**
+   * Clave pública que verifica las firmas del servidor. Un anfitrión P2P la pide
+   * a la API (función: `refresh` = volver a pedirla si una firma no coincide,
+   * p. ej. porque el servidor se reinició con una clave nueva).
+   */
+  adminPublicKey?: JsonWebKey | ((refresh: boolean) => Promise<JsonWebKey | undefined>);
   /**
    * Sólo el servidor con cuentas: valida el token de sesión y devuelve la
    * cuenta. El anfitrión P2P no lo tiene, así que nunca identifica cuentas.
    */
   identify?: (token: string) => Promise<AccountInfo | null>;
+}
+
+/** Verifica con la clave actual y, si falla y la clave viene de la API, con la clave recién pedida. */
+async function verifyWith(opts: HandlerOptions, check: (key?: JsonWebKey) => Promise<boolean>): Promise<boolean> {
+  const k = opts.adminPublicKey;
+  if (typeof k !== 'function') return check(k);
+  const first = await k(false).catch(() => undefined);
+  if (await check(first)) return true;
+  const fresh = await k(true).catch(() => undefined);
+  return !!fresh && fresh !== first && check(fresh);
 }
 
 export function createHandler(lobby: Lobby, client: Client, opts: HandlerOptions = {}) {
@@ -79,7 +93,7 @@ export function createHandler(lobby: Lobby, client: Client, opts: HandlerOptions
     if (m.t === 'admin') {
       if (client.admin) return;
       if (++adminTries > 3) return reject('Demasiados intentos de administrador.');
-      void verifyAdmin(m.sig, nonce, client.id, opts.adminPublicKey).then((ok) => {
+      void verifyWith(opts, (key) => verifyAdmin(m.sig, nonce, client.id, key)).then((ok) => {
         if (ok) {
           client.admin = true;
           client.room?.sendRoom();
@@ -92,7 +106,7 @@ export function createHandler(lobby: Lobby, client: Client, opts: HandlerOptions
       // con servidor de cuentas la colección se lee de la base de datos
       if (lobby.official) return;
       if (++heroTries > 5) return reject('Demasiados intentos.');
-      void verifyHeroes(m.sig, nonce, client.id, m.heroes, opts.adminPublicKey).then((ok) => {
+      void verifyWith(opts, (key) => verifyHeroes(m.sig, nonce, client.id, m.heroes, key)).then((ok) => {
         if (ok) {
           client.owned = new Set(m.heroes.filter(isSecret));
           // lista nueva sin el personaje que estaba usando (retiro): vuelve a Spider-Man

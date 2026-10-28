@@ -41,6 +41,8 @@ export interface RenderOptions {
   debug?: boolean;
   /** Efectos reducidos (preferencia o prefers-reduced-motion). */
   reducedFx?: boolean;
+  /** Margen (px CSS) que la cancha deja libre para el HUD, así la barra de poderes no tapa la pelota. */
+  insetBottom?: number;
 }
 
 export interface DebugLayers {
@@ -231,15 +233,18 @@ export class Renderer {
   draw(s: GameState | null, localId: string, o: RenderOptions, dbg?: DebugLayers): void {
     const c = this.c;
     this.reduced = !!o.reducedFx;
-    this.resize();
+    const dpr = this.resize();
     const W = this.canvas.width;
     const H = this.canvas.height;
+    // el HUD de abajo queda fuera de la cancha si hay lugar (sin achicarla más de un 15 %)
+    const fullFit = Math.min(W / (STADIUM.width * 2 + 20), H / (STADIUM.height * 2 + 20));
+    const inset = Math.max(0, Math.min((o.insetBottom ?? 0) * dpr, H - (STADIUM.height * 2 + 20) * fullFit * 0.85));
     c.setTransform(1, 0, 0, 1, 0, 0);
     c.fillStyle = COLORS.grass;
     c.fillRect(0, 0, W, H);
 
     // cámara: escala uniforme para que entre la cancha completa
-    const fit = Math.min(W / (STADIUM.width * 2 + 20), H / (STADIUM.height * 2 + 20));
+    const fit = Math.min(W / (STADIUM.width * 2 + 20), (H - inset) / (STADIUM.height * 2 + 20));
     const scale = fit * o.zoom;
     const me = s?.players.find((p) => p.id === localId);
     this.localTeam = me?.team ?? null;
@@ -249,14 +254,14 @@ export class Renderer {
       const fx = me ? me.d.x : s.ball.x;
       const fy = me ? me.d.y : s.ball.y;
       const halfW = W / scale / 2;
-      const halfH = H / scale / 2;
+      const halfH = (H - inset) / scale / 2;
       const lim = (v: number, half: number, ext: number) => (half >= ext ? 0 : Math.max(-ext + half, Math.min(ext - half, v)));
       tx = lim(fx, halfW, STADIUM.width + 10);
       ty = lim(fy, halfH, STADIUM.height + 10);
     }
     this.camX += (tx - this.camX) * 0.2;
     this.camY += (ty - this.camY) * 0.2;
-    c.setTransform(scale, 0, 0, scale, W / 2 - this.camX * scale, H / 2 - this.camY * scale);
+    c.setTransform(scale, 0, 0, scale, W / 2 - this.camX * scale, (H - inset) / 2 - this.camY * scale);
 
     this.drawField(c);
     if (!s) return;

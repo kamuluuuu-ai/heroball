@@ -71,6 +71,29 @@ export function signHeroes(privateKeyB64: string, nonce: string, clientId: strin
   return sign(privateKeyB64, heroesChallenge(nonce, clientId, heroes));
 }
 
+/**
+ * Par de claves de firma del servidor. Con `privateKeyB64` (MODERATOR_SIGNING_KEY)
+ * usa esa clave; sin ella genera una propia al arrancar. La pública se publica en
+ * /api/signing-key para que los anfitriones P2P verifiquen sin configuración.
+ */
+export async function signingPair(privateKeyB64?: string): Promise<{ priv: string; pub: JsonWebKey }> {
+  const c = subtle();
+  if (!c) throw new Error('WebCrypto no disponible.');
+  let priv = privateKeyB64;
+  if (!priv) {
+    const pair = await c.generateKey(ALG, true, ['sign', 'verify']);
+    priv = toB64(await c.exportKey('pkcs8', pair.privateKey));
+  }
+  const jwk = await c.exportKey('jwk', await c.importKey('pkcs8', fromB64(priv), ALG, true, ['sign']));
+  return { priv, pub: { kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y } };
+}
+
+/** ¿Es una clave pública EC P-256 con forma válida? */
+export function isPublicKey(k: unknown): k is JsonWebKey {
+  const o = k as Record<string, unknown> | null;
+  return !!o && o.kty === 'EC' && o.crv === 'P-256' && typeof o.x === 'string' && typeof o.y === 'string' && o.x.length < 64 && o.y.length < 64;
+}
+
 let pubKey: Promise<CryptoKey> | null = null;
 
 async function verify(sig: string, data: Uint8Array<ArrayBuffer>, publicKey: JsonWebKey): Promise<boolean> {
